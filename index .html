@@ -1,0 +1,879 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 确保移动端不随意缩放和拉伸 -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>机会博弈 (THE TRADE OFF) - 天空之城全景沙盘</title>
+<style>
+:root {
+ --panel-bg: rgba(22, 34, 42, 0.85);
+ --nature-green: #4ade80;
+ --nature-gold: #fbbf24;
+ --nature-sky: #38bdf8;
+ --nature-pink: #f472b6;
+ --nature-red: #ef4444;
+ --nature-purple: #a78bfa;
+ --text-light: #f8fafc;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+ font-family: 'Segoe UI', Roboto, -apple-system, sans-serif;
+ background: linear-gradient(135deg, #1e1b4b 0%, #2e1065 35%, #0f172a 100%);
+ margin: 0; padding: 12px; color: var(--text-light);
+ min-height: 100vh; position: relative; overflow-x: hidden;
+ transition: background 0.3s ease;
+}
+
+body::before {
+ content: ''; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+ background-image:
+ radial-gradient(rgba(244, 114, 182, 0.1) 2px, transparent 0),
+ radial-gradient(rgba(56, 189, 248, 0.1) 1.5px, transparent 0);
+ background-size: 100px 100px, 150px 150px;
+ animation: cloudFloat 40s linear infinite; z-index: -1; pointer-events: none;
+}
+@keyframes cloudFloat { 0% { background-position: 0 0, 0 0; } 100% { background-position: 150px 150px, -150px 200px; } }
+
+/* ============ 🚨 通胀 / 危机 全屏紧急状态 ============ */
+@keyframes emergencyFlash {
+ 0% { background-color: rgba(139, 0, 0, 0); }
+ 50% { background-color: rgba(139, 0, 0, 0.35); }
+ 100% { background-color: rgba(139, 0, 0, 0); }
+}
+@keyframes screenShake {
+ 0% { transform: translate(0, 0); }
+ 20% { transform: translate(-3px, 2px); }
+ 40% { transform: translate(3px, -2px); }
+ 60% { transform: translate(-2px, -1px); }
+ 80% { transform: translate(2px, 1px); }
+ 100% { transform: translate(0, 0); }
+}
+#emergency-overlay {
+ display: none; position: fixed; inset: 0; z-index: 9998;
+ pointer-events: none; animation: emergencyFlash 0.9s ease-in-out infinite;
+}
+body.emergency .container { animation: screenShake 0.35s infinite; }
+body.emergency #emergency-overlay { display: block; }
+body.emergency::after {
+ content: ''; position: fixed; inset: 0; z-index: 9997;
+ box-shadow: inset 0 0 140px 40px rgba(220, 38, 38, 0.65);
+ pointer-events: none;
+}
+
+@keyframes boomFlash {
+ 0% { background-color: rgba(202, 138, 4, 0); }
+ 50% { background-color: rgba(202, 138, 4, 0.25); }
+ 100% { background-color: rgba(202, 138, 4, 0); }
+}
+body.boomtime #emergency-overlay { display: block; animation: boomFlash 0.9s ease-in-out infinite; }
+body.boomtime::after {
+ content: ''; position: fixed; inset: 0; z-index: 9997;
+ box-shadow: inset 0 0 140px 40px rgba(250, 204, 21, 0.5);
+ pointer-events: none;
+}
+
+.siren-bar {
+ display: none; position: fixed; top: 0; left: 0; width: 100%; z-index: 9999;
+ background: repeating-linear-gradient(45deg, #b91c1c, #b91c1c 20px, #7f1d1d 20px, #7f1d1d 40px);
+ color: #fff; text-align: center; font-weight: bold; letter-spacing: 1px;
+ padding: 8px 5px; font-size: 13px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+body.emergency .siren-bar { display: block; }
+body.boomtime .siren-bar {
+ display: block;
+ background: repeating-linear-gradient(45deg, #ca8a04, #ca8a04 20px, #92610a 20px, #92610a 40px);
+}
+
+.container {
+ max-width: 1680px; margin: 0 auto; background: var(--panel-bg);
+ padding: 16px; border-radius: 18px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+ backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); position: relative;
+}
+h1 {
+ text-align: center; font-size: 1.8rem; margin: 5px 0;
+ background: linear-gradient(45deg, var(--nature-sky), var(--nature-pink), var(--nature-gold));
+ -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-shadow: 0 4px 10px rgba(0,0,0,0.4);
+}
+.setup-screen, .game-screen, .end-screen { display: none; }
+.active { display: block; animation: scaleUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+@keyframes scaleUp { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+.btn {
+ background: linear-gradient(135deg, #0369a1 0%, #38bdf8 100%); color: white; border: none; padding: 12px 20px;
+ font-size: 15px; border-radius: 12px; cursor: pointer; font-weight: bold; width: 100%;
+ box-shadow: 0 4px 14px rgba(56, 189, 248, 0.2); transition: all 0.2s ease; touch-action: manipulation;
+}
+.btn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(56, 189, 248, 0.4); }
+.btn:disabled { background: #475569; cursor: not-allowed; transform: none; box-shadow: none; opacity: 0.6; }
+.btn-accent { background: linear-gradient(135deg, #be123c 0%, #fb7185 100%); box-shadow: 0 4px 14px rgba(251, 113, 133, 0.2); }
+.btn-warning { background: linear-gradient(135deg, #b45309 0%, #f59e0b 100%); }
+.btn-gold { background: linear-gradient(135deg, #ca8a04 0%, #facc15 100%); color: #451a03; }
+
+/* 📱 游戏主布局适配移动端 */
+.game-layout { display: flex; flex-direction: column-reverse; gap: 15px; margin-top: 15px; }
+
+.players-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 15px; }
+.player-card { border: 1px solid rgba(255,255,255,0.05); border-radius: 14px; padding: 12px; background: rgba(15, 23, 42, 0.6); }
+.player-card.current { transform: none; box-shadow: 0 0 15px rgba(56, 189, 248, 0.3); background: rgba(30, 41, 59, 0.85); border-color: var(--nature-sky); }
+.player-card p { margin: 4px 0; font-size: 12px; color: #cbd5e1; }
+
+.economy-status { display: flex; gap: 8px; margin-bottom: 15px; padding: 8px 10px; background: rgba(0,0,0,0.4); border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); justify-content: space-around; font-size: 12px; flex-wrap: wrap; }
+.eco-bad { color: var(--nature-red); font-weight: bold; }
+.eco-good { color: var(--nature-green); font-weight: bold; }
+
+/* 🎲 骰子适配 */
+.dice-zone { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-bottom: 10px; }
+.dice-face {
+ width: 64px; height: 64px; background: linear-gradient(145deg, #ffffff, #dbe4ee);
+ border-radius: 14px; display: flex; align-items: center; justify-content: center;
+ font-size: 36px; color: #1e293b; box-shadow: 0 6px 15px rgba(0,0,0,0.5);
+}
+.dice-face.rolling { animation: diceSpin 0.12s linear infinite; }
+@keyframes diceSpin { 0% { transform: rotate(0deg) scale(1); } 50% { transform: rotate(180deg) scale(1.05); } 100% { transform: rotate(360deg) scale(1); } }
+.dice-result-label { font-size: 12px; color: var(--nature-gold); font-weight: bold; min-height: 16px; }
+
+/* 📱 响应式 3D Stage 容器高度 */
+.board-3d-stage {
+ width: 100%; height: 380px;
+ background: linear-gradient(to bottom, #1e1b4b, #311042, #0f172a);
+ border-radius: 16px; overflow: hidden; border: 1px solid rgba(56, 189, 248, 0.2);
+ position: relative;
+}
+
+.map-status { background: rgba(15, 23, 42, 0.5); color: var(--nature-sky); padding: 10px; border-left: 3px solid var(--nature-sky); border-radius: 8px; margin-bottom: 12px; font-weight: bold; text-align: center; font-size: 13px; }
+.action-zone { border: 1px dashed rgba(56, 189, 248, 0.3); padding: 15px; border-radius: 12px; min-height: 120px; margin-bottom: 15px; background: rgba(15, 23, 42, 0.3); }
+.decision-box { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+.opt-card { border: 1px solid rgba(255,255,255,0.08); padding: 10px; border-radius: 10px; background: rgba(30, 41, 59, 0.8); text-align: center; }
+.opt-icon { font-size: 28px; margin-bottom: 4px; }
+
+.log-box { background: #090d16; color: #93c5fd; padding: 10px; border-radius: 10px; height: 120px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+.setup-group { margin-bottom: 15px; }
+input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; background-color: #0f172a; color: #fff; font-size: 14px; }
+
+.player-setup-card { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px; margin-bottom: 12px; }
+.player-setup-card > label { display:block; margin-bottom:6px; font-size:13px; font-weight:bold; color: var(--nature-sky); }
+.avatar-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.avatar-card {
+ background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px;
+ padding: 6px 2px; text-align: center;
+}
+.avatar-card .avatar-icon { font-size: 24px; display: block; }
+.avatar-card .avatar-name { font-size: 10px; color: #cbd5e1; }
+.avatar-card.selected { border-color: var(--nature-gold); background: rgba(251, 191, 36, 0.12); }
+.avatar-card.taken { opacity: 0.3; filter: grayscale(1); }
+
+.job-badge { display:inline-block; margin-top:4px; font-size:10px; color: var(--nature-gold); background: rgba(251,191,36,0.1); padding: 2px 6px; border-radius: 12px; border: 1px solid rgba(251,191,36,0.3); }
+
+/* 📱 弹窗适配手机屏幕 */
+.event-modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); z-index: 10000; justify-content: center; align-items: center; padding: 15px; }
+.event-modal { background: #1e293b; border: 2px solid var(--nature-red); border-radius: 16px; width: 100%; max-width: 450px; overflow: hidden; text-align: center; }
+.event-modal.positive { border-color: var(--nature-gold); }
+.event-modal-icon { font-size: 50px; padding: 15px 0 5px; background: rgba(220,38,38,0.15); border-bottom: 2px solid var(--nature-red); }
+.event-modal.positive .event-modal-icon { background: rgba(250,204,21,0.15); border-bottom: 2px solid var(--nature-gold); }
+.event-modal-content { padding: 15px; }
+.event-modal-content h2 { color: var(--nature-red); margin: 0 0 10px 0; font-size: 18px; }
+.event-modal.positive .event-modal-content h2 { color: var(--nature-gold); }
+.event-modal-content p { font-size: 13px; line-height: 1.4; color: #cbd5e1; margin-bottom: 10px; }
+.eco-impact-box { background: rgba(0,0,0,0.3); padding: 10px; border-radius: 8px; margin: 10px 0; font-family: monospace; font-size: 12px; }
+
+.market-banner { background: rgba(250, 204, 21, 0.15); border: 1px solid var(--nature-gold); border-radius: 10px; padding: 10px; margin-top: 10px; text-align: left; }
+
+/* 🏆 电脑端与平板兼容处理 */
+@media (min-width: 768px) {
+ body { padding: 20px; }
+ .container { padding: 25px; }
+ h1 { font-size: 2.5rem; }
+ .game-layout { display: grid; grid-template-columns: 360px 1fr; gap: 20px; }
+ .board-3d-stage { height: 620px; }
+ .btn { width: auto; }
+ .decision-box { grid-template-columns: 1fr 1fr; }
+ .log-box { height: 160px; font-size: 12px; }
+}
+
+/* 颁奖典礼 */
+.award-list { display: flex; flex-direction: column; gap: 10px; margin-top: 12px; }
+.award-card { display: flex; align-items: center; gap: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(251,191,36,0.3); border-radius: 10px; padding: 10px; text-align: left; font-size: 13px; }
+.award-icon { font-size: 24px; }
+.reveal-list { display: flex; flex-direction: column-reverse; gap: 8px; margin-top: 12px; }
+.rank-reveal-row { background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px; text-align: left; font-size: 13px; }
+
+.podium-stage { display: flex; align-items: flex-end; justify-content: center; gap: 8px; margin-top: 20px; }
+.podium-block { width: 90px; border-radius: 8px 8px 0 0; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; padding: 6px 4px; text-align: center; background: linear-gradient(180deg, rgba(56,189,248,0.25), rgba(15,23,42,0.9)); border: 1px solid rgba(255,255,255,0.15); }
+.podium-medal { font-size: 22px; }
+.podium-player { font-weight: bold; font-size: 11px; }
+.podium-score { color: var(--nature-gold); font-size: 11px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div class="siren-bar" id="siren-bar">🚨 经济紧急状态 · ECONOMIC EMERGENCY 🚨</div>
+<div id="emergency-overlay"></div>
+
+<div class="container">
+<h1>机会博弈 (THE TRADE OFF)</h1>
+<p style="text-align: center; margin-top: -5px; color: #38bdf8; font-size: 12px; letter-spacing: 1px;">🌤️ 天空之城・多元化沉浸自然沙盘 🦅</p>
+
+<div id="setup-screen" class="setup-screen active">
+ <h2 style="font-size:1.2rem; text-align:center;">玩家初始化</h2>
+ <div class="setup-group">
+ <label style="display:block; margin-bottom:6px; font-weight:bold; font-size:13px;">选择探索者数量:</label>
+ <select id="player-count" onchange="generateNameInputs()">
+ <option value="2">2人竞技模式</option>
+ <option value="3">3人竞技模式</option>
+ <option value="4">4人全员生态大乱斗</option>
+ </select>
+ </div>
+ <div id="name-inputs-container"></div>
+ <p id="avatar-warning" style="display:none; color: var(--nature-red); font-weight:bold; text-align:center; margin: 8px 0; font-size:12px;">⚠️ 每位探索者的形象必须是独一无二的！</p>
+ <button class="btn" onclick="startGame()">建立天空世界并入场</button>
+</div>
+
+<div id="game-screen" class="game-screen">
+ <h2 id="round-title" style="color: var(--nature-sky); text-align: center; margin-bottom: 5px; font-size:1.2rem;">第 1 周期</h2>
+
+ <div class="economy-status" id="economy-status"></div>
+
+ <div class="players-dashboard" id="dashboard"></div>
+
+ <div class="game-layout">
+ <div class="control-panel">
+ <div class="map-status" id="map-info">等待抛掷幸运浆果...</div>
+
+ <div class="dice-zone">
+ <div class="dice-face" id="dice-face">🎲</div>
+ <div class="dice-result-label" id="dice-result-label"></div>
+ </div>
+
+ <div class="action-zone" id="action-zone"></div>
+ <h3 style="font-size:14px; margin-bottom:6px;">天空原野日志</h3>
+ <div class="log-box" id="log-box"></div>
+ </div>
+ <div class="board-3d-stage" id="three-container"></div>
+ </div>
+</div>
+
+<div id="end-screen" class="end-screen" style="text-align:center;">
+ <h2 style="color:var(--nature-green); font-size:1.3rem;">探险圆满结束</h2>
+ <div id="leaderboard-zone" style="max-width:100%; margin:15px auto; padding:15px; background:rgba(0,0,0,0.2); border-radius:12px;"></div>
+ <button class="btn" onclick="location.reload()" style="margin-top:15px;">重启天空世界</button>
+</div>
+</div>
+
+<div id="event-modal-overlay" class="event-modal-overlay">
+ <div class="event-modal" id="event-modal">
+ <div class="event-modal-icon" id="event-icon">🚨</div>
+ <div class="event-modal-content">
+ <h2 id="event-title">事件标题</h2>
+ <p id="event-desc">事件详细描述...</p>
+ <div class="eco-impact-box" id="event-impact">影响数值</div>
+ <button class="btn btn-warning" style="width: 100%;" onclick="closeEventModal()">确认并应对危机</button>
+ </div>
+ </div>
+</div>
+
+<script>
+// ================= 核心游戏数据 =================
+let players = [];
+let currentPlayerIndex = 0;
+let currentRound = 1;
+const totalRounds = 12;
+let globalInflation = 1.0;
+let salaryRate = 1.0;
+let economyStateName = "和平稳定";
+
+const JOBS = [
+ { name: "教师", salary: 2500 }, { name: "护士", salary: 2550 },
+ { name: "厨师", salary: 2600 }, { name: "工厂员工", salary: 2650 },
+ { name: "保安员", salary: 2700 }, { name: "Grab司机", salary: 2750 },
+ { name: "小商贩", salary: 2800 }, { name: "自由工作者", salary: 2850 },
+ { name: "农夫", salary: 2900 }, { name: "文员", salary: 3000 },
+ { name: "会计助理", salary: 3100 }, { name: "警察", salary: 3200 },
+ { name: "程序员", salary: 3300 }, { name: "工程师", salary: 3400 },
+ { name: "公务员", salary: 3500 }, { name: "会计师", salary: 3800 },
+ { name: "建筑师", salary: 4000 }, { name: "企业经理", salary: 4300 },
+ { name: "律师", salary: 4600 }, { name: "医生", salary: 5000 }
+];
+
+function shuffleArray(arr) {
+ let a = arr.slice();
+ for (let i = a.length - 1; i > 0; i--) {
+ const j = Math.floor(Math.random() * (i + 1));
+ [a[i], a[j]] = [a[j], a[i]];
+ }
+ return a;
+}
+
+const tileMeta = {
+ "起点": { icon: "🏁", color: "#16a34a" },
+ "收入格": { icon: "💰", color: "#22c55e" },
+ "支出格": { icon: "💸", color: "#f87171" },
+ "银行格": { icon: "🏦", color: "#ea580c" },
+ "决策格": { icon: "⚖️", color: "#ca8a04" },
+ "投资格": { icon: "📈", color: "#0284c7" },
+ "机会格": { icon: "🎁", color: "#9333ea" },
+ "风险格": { icon: "⚡", color: "#dc2626" },
+ "平安格": { icon: "🍃", color: "#64748b" },
+ "拘留格": { icon: "🚔", color: "#334155" },
+ "命运格": { icon: "🔮", color: "#7c3aed" },
+ "跳槽格": { icon: "💼", color: "#0891b2" }
+};
+
+const boardTiles = [
+ "起点", "收入格", "支出格", "平安格", "决策格", "投资格", "机会格", "风险格",
+ "收入格", "支出格", "银行格", "命运格", "跳槽格", "决策格", "支出格", "收入格",
+ "拘留格", "投资格", "机会格", "风险格", "决策格", "平安格", "银行格", "命运格",
+ "收入格", "支出格", "机会格", "决策格", "投资格", "风险格", "收入格", "支出格"
+];
+
+const fateCards = [
+ { text: "路边捡到许愿金币 +$500", effect: p => { p.money += 500; p.happiness += 1; } },
+ { text: "云端感冒支出 -$200，心情低落 -1❤️", effect: p => { p.money -= 200; p.happiness = Math.max(0, p.happiness - 1); } },
+ { text: "彩虹幸运抽奖中奖 +$800", effect: p => { p.money += 800; } },
+ { text: "发电机损坏，维修 -$400", effect: p => { p.money -= 400; } },
+ { text: "老朋友聚餐，心情大好 +1❤️", effect: p => { p.happiness += 1; } },
+ { text: "不慎遗失钱包 -$300，心情 -1❤️", effect: p => { p.money -= 300; p.happiness = Math.max(0, p.happiness - 1); } }
+];
+
+function rand(min, max) { return Math.random() * (max - min) + min; }
+function pct(x) { return Math.round(x * 100) + "%"; }
+
+const eventPool = [
+ {
+ id: "crash", title: "📉 突发：全球金融风暴", icon: "📉", emergency: true,
+ run: () => {
+ const salaryCut = rand(0.60, 0.78);
+ salaryRate = +salaryCut.toFixed(2);
+ economyStateName = "金融危机";
+ players.forEach(p => { p.invest = Math.floor((p.invest || 0) * 0.5); });
+ return { desc: "华尔街股市崩盘，许多企业裁员降薪。", impact: `⚠️ 薪资降至 ${pct(salaryCut)} | 投资金减半` };
+ }
+ },
+ {
+ id: "covid", title: "🦠 突发：新冠疫情封锁", icon: "🦠", emergency: true,
+ run: () => {
+ const salaryCut = rand(0.70, 0.88);
+ salaryRate = +salaryCut.toFixed(2);
+ economyStateName = "疫情封锁";
+ return { desc: "全球爆发疫情紧急封锁，多行业停摆。", impact: `⚠️ 薪资降至 ${pct(salaryCut)}` };
+ }
+ },
+ {
+ id: "boom", title: "🚀 科技牛市 · 复苏", icon: "🚀", emergency: false,
+ run: () => {
+ const salaryBoost = rand(1.10, 1.30);
+ salaryRate = +salaryBoost.toFixed(2);
+ economyStateName = "经济复苏";
+ return { desc: "科技大爆发，就业市场回暖！", impact: `🎉 薪资率提升至 ${pct(salaryBoost)}` };
+ }
+ }
+];
+let triggeredEventCount = 0;
+const maxEvents = 3;
+const usedEventIds = new Set();
+
+let scene, camera, renderer, tileMeshes = [], animalMeshes = [];
+let isAnimating = false, jumpData = null, globalPulseTime = 0;
+const diceUnicode = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
+
+const animalConfigs = [
+ { name: "红狐", color: 0xff5722, type: "fox", icon: "🦊" },
+ { name: "青蛙", color: 0x00d2ff, type: "frog", icon: "🐸" },
+ { name: "恐龙", color: 0x4caf50, type: "dino", icon: "🦖" },
+ { name: "小鸭", color: 0xffeb3b, type: "duck", icon: "🦆" }
+];
+
+let selectedAvatars = [];
+
+function generateNameInputs() {
+ const count = parseInt(document.getElementById('player-count').value);
+ selectedAvatars = [];
+ for (let i = 0; i < count; i++) selectedAvatars.push(i % animalConfigs.length);
+
+ const container = document.getElementById('name-inputs-container');
+ container.innerHTML = '';
+ for (let i = 1; i <= count; i++) {
+ container.innerHTML += `
+ <div class="player-setup-card">
+ <label>探索者 ${i} 名字：</label>
+ <input type="text" id="pname-${i}" value="探索者_${i}">
+ <label style="margin-top:8px;">选择部落化身：</label>
+ <div class="avatar-grid" id="avatar-grid-${i}"></div>
+ </div>`;
+ }
+ renderAllAvatarGrids();
+}
+generateNameInputs();
+
+function renderAllAvatarGrids() {
+ const count = selectedAvatars.length;
+ for (let i = 1; i <= count; i++) {
+ const grid = document.getElementById(`avatar-grid-${i}`);
+ if (!grid) continue;
+ const myChoice = selectedAvatars[i - 1];
+ grid.innerHTML = animalConfigs.map((cfg, idx) => {
+ const takenByOther = selectedAvatars.includes(idx) && myChoice !== idx;
+ const isSelected = myChoice === idx;
+ return `
+ <div class="avatar-card ${isSelected ? 'selected' : ''} ${takenByOther ? 'taken' : ''}"
+ onclick="${takenByOther ? '' : `selectAvatar(${i - 1}, ${idx})`}">
+ <span class="avatar-icon">${cfg.icon}</span>
+ <span class="avatar-name">${cfg.name}</span>
+ </div>`;
+ }).join('');
+ }
+}
+
+function selectAvatar(playerIdx, avatarIdx) {
+ if (selectedAvatars.includes(avatarIdx) && selectedAvatars[playerIdx] !== avatarIdx) return;
+ selectedAvatars[playerIdx] = avatarIdx;
+ document.getElementById('avatar-warning').style.display = 'none';
+ renderAllAvatarGrids();
+}
+
+function startGame() {
+ const count = parseInt(document.getElementById('player-count').value);
+ const uniqueCheck = new Set(selectedAvatars.slice(0, count));
+ if (uniqueCheck.size !== count) {
+ document.getElementById('avatar-warning').style.display = 'block';
+ return;
+ }
+
+ const shuffledJobs = shuffleArray(JOBS);
+ for (let i = 1; i <= count; i++) {
+ let name = document.getElementById(`pname-${i}`).value.trim() || `玩家_${i}`;
+ let cfg = animalConfigs[selectedAvatars[i - 1]];
+ players.push({
+ name: name, animal: cfg.name, color: cfg.color, type: cfg.type, icon: cfg.icon,
+ job: shuffledJobs[i - 1],
+ money: 4000, savings: 0, invest: 0, assetsValue: 0,
+ happiness: 5, position: 0,
+ investCount: 0, usedHustleThisTurn: false
+ });
+ }
+ document.getElementById('setup-screen').classList.remove('active');
+ document.getElementById('game-screen').classList.add('active');
+ initThreeDScene();
+ checkAndTriggerMacroEvent();
+}
+
+function baseIncomeFor(p) { return Math.floor((p.job.salary / 4) * salaryRate); }
+
+function updateUI() {
+ document.getElementById('round-title').innerText = `第 ${currentRound} / ${totalRounds} 探险周期`;
+ const ecoPanel = document.getElementById('economy-status');
+ ecoPanel.innerHTML = `
+ <span>🌍 状态: <b class="${globalInflation > 1 || salaryRate < 1 ? 'eco-bad' : 'eco-good'}">${economyStateName}</b></span>
+ <span>💹 通胀: ${globalInflation}x</span>
+ <span>💼 薪资: ${Math.round(salaryRate * 100)}%</span>`;
+
+ const dashboard = document.getElementById('dashboard');
+ dashboard.innerHTML = '';
+ players.forEach((p, idx) => {
+ let isCurrent = idx === currentPlayerIndex ? 'current' : '';
+ let hexColor = p.color.toString(16).padStart(6, '0');
+ dashboard.innerHTML += `
+ <div class="player-card ${isCurrent}">
+ <h4 style="color:#${hexColor}; margin:0 0 4px 0; font-size:13px;">${p.icon} ${p.name}</h4>
+ <span class="job-badge">${p.job.name}</span>
+ <p>💵 现金: <b style="color:var(--nature-gold);">$${p.money}</b></p>
+ <p>❤️ 幸福感: <b>${p.happiness}</b></p>
+ </div>`;
+ });
+}
+
+function log(msg) {
+ const box = document.getElementById('log-box');
+ box.innerHTML += `<div>${msg}</div>`;
+ box.scrollTop = box.scrollHeight;
+}
+
+function setEmergencyMode(on, positive = false) {
+ document.body.classList.toggle('emergency', on && !positive);
+ document.body.classList.toggle('boomtime', on && positive);
+}
+
+function checkAndTriggerMacroEvent() {
+ let chosenEvent = null;
+ if (currentRound >= 2 && currentRound < totalRounds && triggeredEventCount < maxEvents) {
+ if (Math.random() < 0.25) {
+ const available = eventPool.filter(e => !usedEventIds.has(e.id));
+ if (available.length > 0) chosenEvent = available[Math.floor(Math.random() * available.length)];
+ }
+ }
+ if (chosenEvent) {
+ usedEventIds.add(chosenEvent.id);
+ triggeredEventCount++;
+ runMacroEvent(chosenEvent);
+ } else {
+ startPlayerTurnInit();
+ }
+}
+
+function runMacroEvent(event) {
+ const { desc, impact } = event.run();
+ document.getElementById('event-icon').innerText = event.icon;
+ document.getElementById('event-title').innerText = event.title;
+ document.getElementById('event-desc').innerText = desc;
+ document.getElementById('event-impact').innerText = impact;
+ document.getElementById('event-modal').classList.toggle('positive', !event.emergency);
+ document.getElementById('event-modal-overlay').style.display = 'flex';
+ log(`🚨 【新闻】${event.title}`);
+ setEmergencyMode(true, !event.emergency);
+ updateUI();
+}
+
+function closeEventModal() {
+ document.getElementById('event-modal-overlay').style.display = 'none';
+ setTimeout(() => setEmergencyMode(false), 2000);
+ updateUI();
+ startPlayerTurnInit();
+}
+
+function startPlayerTurnInit() {
+ let p = players[currentPlayerIndex];
+ p.usedHustleThisTurn = false;
+ document.getElementById('dice-face').innerText = "🎲";
+ document.getElementById('dice-face').classList.remove('rolling');
+ document.getElementById('dice-result-label').innerText = "";
+
+ document.getElementById('action-zone').innerHTML = `
+ <p style="margin-top:0; font-size:13px;">轮到【<b>${p.name}</b>】进行决策。</p>
+ <button class="btn btn-accent" id="dice-btn" onclick="playTurn()">🎲 抛掷幸运橡果</button>
+ `;
+ updateUI();
+}
+
+// ================= 📱 THREE.JS 响应式适配 =================
+function initThreeDScene() {
+ const container = document.getElementById('three-container');
+ scene = new THREE.Scene();
+ scene.background = new THREE.Color(0x161233);
+
+ camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 1, 1000);
+ camera.position.set(0, 115, 75);
+ camera.lookAt(0, -5, 0);
+
+ renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+ // 针对移动端优化 pixel ratio，提高流畅度
+ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+ renderer.setSize(container.clientWidth, container.clientHeight);
+ container.appendChild(renderer.domElement);
+
+ const ambientLight = new THREE.AmbientLight(0xfffdf0, 0.9);
+ scene.add(ambientLight);
+ const sunLight = new THREE.DirectionalLight(0xffecd2, 0.8);
+ sunLight.position.set(20, 40, 15);
+ scene.add(sunLight);
+
+ build3DGridBoard();
+
+ players.forEach((p, idx) => {
+ let animalGroup = createVoxelAnimal(p.type, p.color);
+ scene.add(animalGroup);
+ animalMeshes.push(animalGroup);
+ let pos = get3DGridPosition(0, idx);
+ animalGroup.position.copy(pos);
+ });
+
+ // 监听屏幕旋转/调整大小
+ window.addEventListener('resize', onWindowResize);
+ animate();
+}
+
+function onWindowResize() {
+ const container = document.getElementById('three-container');
+ if (!container || !renderer) return;
+ camera.aspect = container.clientWidth / container.clientHeight;
+ camera.updateProjectionMatrix();
+ renderer.setSize(container.clientWidth, container.clientHeight);
+}
+
+function createTileTexture(tileName) {
+ const meta = tileMeta[tileName] || { icon: "❔", color: "#475569" };
+ const S = 256;
+ let canvas = document.createElement('canvas');
+ canvas.width = S; canvas.height = S;
+ let ctx = canvas.getContext('2d');
+ ctx.fillStyle = meta.color;
+ ctx.fillRect(0, 0, S, S);
+ ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
+ ctx.lineWidth = 10;
+ ctx.strokeRect(8, 8, S - 16, S - 16);
+
+ ctx.font = "120px 'Segoe UI Emoji', Arial";
+ ctx.textAlign = "center";
+ ctx.textBaseline = "middle";
+ ctx.fillText(meta.icon, S / 2, S * 0.42);
+
+ ctx.fillStyle = "rgba(0,0,0,0.6)";
+ ctx.fillRect(0, S * 0.68, S, S * 0.32);
+
+ ctx.font = "bold 36px 'Segoe UI', Arial, sans-serif";
+ ctx.fillStyle = "#ffffff";
+ ctx.fillText(tileName, S / 2, S * 0.85);
+ return new THREE.CanvasTexture(canvas);
+}
+
+function get3DGridPosition(tileIndex, playerIdx = 0) {
+ const N = boardTiles.length;
+ const perSide = N / 4;
+ const size = 72, step = size / perSide, start = -size / 2 + step / 2;
+ const side = Math.floor(tileIndex / perSide);
+ const posInSide = tileIndex % perSide;
+ let x = 0, z = 0;
+ if (side === 0) { x = start + posInSide * step; z = start; }
+ else if (side === 1) { x = start + (perSide - 1) * step; z = start + posInSide * step; }
+ else if (side === 2) { x = start + (perSide - 1 - posInSide) * step; z = start + (perSide - 1) * step; }
+ else { x = start; z = start + (perSide - 1 - posInSide) * step; }
+ if (playerIdx === 0) { x -= 1.2; z -= 1.2; }
+ if (playerIdx === 1) { x += 1.2; z -= 1.2; }
+ if (playerIdx === 2) { x -= 1.2; z += 1.2; }
+ if (playerIdx === 3) { x += 1.2; z += 1.2; }
+ return new THREE.Vector3(x, 0.2, z);
+}
+
+function build3DGridBoard() {
+ const N = boardTiles.length;
+ const perSide = N / 4;
+ const size = 72, step = size / perSide;
+
+ let baseGeo = new THREE.BoxGeometry(80, 0.3, 80);
+ let baseMat = new THREE.MeshStandardMaterial({ color: 0x1c2431 });
+ let base = new THREE.Mesh(baseGeo, baseMat);
+ base.position.set(0, -0.15, 0);
+ scene.add(base);
+
+ for (let i = 0; i < boardTiles.length; i++) {
+ let pos = get3DGridPosition(i, -1);
+ let texture = createTileTexture(boardTiles[i]);
+ let sideMat = new THREE.MeshStandardMaterial({ color: 0x0f172a });
+ let topMat = new THREE.MeshStandardMaterial({ map: texture });
+ let mesh = new THREE.Mesh(
+ new THREE.BoxGeometry(step - 0.6, 0.18, step - 0.6),
+ [sideMat, sideMat, topMat, sideMat, sideMat, sideMat]
+ );
+ mesh.position.set(pos.x, 0.05, pos.z);
+ scene.add(mesh);
+ tileMeshes.push(mesh);
+ }
+}
+
+function createVoxelAnimal(type, baseColor) {
+ let group = new THREE.Group();
+ let mat = new THREE.MeshStandardMaterial({ color: baseColor });
+ let body = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.8), mat);
+ body.position.y = 0.8;
+ group.add(body);
+ let head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.4, 1.4), mat);
+ head.position.set(0, 2.0, 0.3);
+ group.add(head);
+ group.scale.set(1.1, 1.1, 1.1);
+ return group;
+}
+
+function animate() {
+ requestAnimationFrame(animate);
+ globalPulseTime += 0.04;
+ if (isAnimating && jumpData) {
+ jumpData.elapsed += 0.06;
+ if (jumpData.elapsed >= 1) {
+ jumpData.currentStep++;
+ if (jumpData.currentStep < jumpData.totalSteps) {
+ let fromIdx = (jumpData.startIdx + jumpData.currentStep - 1) % boardTiles.length;
+ let toIdx = (jumpData.startIdx + jumpData.currentStep) % boardTiles.length;
+ jumpData.startPos.copy(get3DGridPosition(fromIdx, jumpData.pIdx));
+ jumpData.targetPos.copy(get3DGridPosition(toIdx, jumpData.pIdx));
+ jumpData.elapsed = 0;
+ } else {
+ animalMeshes[jumpData.pIdx].position.copy(get3DGridPosition(jumpData.finalTarget, jumpData.pIdx));
+ isAnimating = false;
+ let p = jumpData.player;
+ p.position = jumpData.finalTarget;
+ let tile = boardTiles[p.position];
+ document.getElementById('map-info').innerText = `安全降落：【${tile}】`;
+ handleTileEffect(p, tile);
+ jumpData = null;
+ }
+ } else {
+ let mesh = animalMeshes[jumpData.pIdx], t = jumpData.elapsed;
+ mesh.position.x = jumpData.startPos.x + (jumpData.targetPos.x - jumpData.startPos.x) * t;
+ mesh.position.z = jumpData.startPos.z + (jumpData.targetPos.z - jumpData.startPos.z) * t;
+ mesh.position.y = jumpData.startPos.y + Math.sin(t * Math.PI) * 5.0;
+ mesh.lookAt(jumpData.targetPos.x, mesh.position.y, jumpData.targetPos.z);
+ }
+ } else {
+ animalMeshes.forEach((mesh, idx) => {
+ if (!isAnimating) {
+ let tilePos = get3DGridPosition(players[idx].position, idx);
+ mesh.position.y = tilePos.y + Math.sin(globalPulseTime + idx * 2) * 0.12;
+ }
+ });
+ }
+ renderer.render(scene, camera);
+}
+
+// ================= 掷骰逻辑 =================
+function playTurn() {
+ if (isAnimating) return;
+ let p = players[currentPlayerIndex];
+ document.getElementById('dice-btn').disabled = true;
+
+ const diceFace = document.getElementById('dice-face');
+ const resultLabel = document.getElementById('dice-result-label');
+ diceFace.classList.add('rolling');
+ resultLabel.innerText = "滚动中...";
+
+ let rollCount = 0;
+ const rollInterval = setInterval(() => {
+ let tempVal = Math.floor(Math.random() * 6) + 1;
+ diceFace.innerText = diceUnicode[tempVal];
+ rollCount++;
+ if (rollCount >= 10) {
+ clearInterval(rollInterval);
+ let dice = Math.floor(Math.random() * 6) + 1;
+ diceFace.innerText = diceUnicode[dice];
+ diceFace.classList.remove('rolling');
+ resultLabel.innerText = `🎯 结果：${dice} 点！`;
+
+ let finalTarget = (p.position + dice) % boardTiles.length;
+ jumpData = {
+ player: p, pIdx: currentPlayerIndex, startIdx: p.position, finalTarget: finalTarget,
+ currentStep: 0, totalSteps: dice,
+ startPos: get3DGridPosition(p.position, currentPlayerIndex).clone(),
+ targetPos: get3DGridPosition((p.position + 1) % boardTiles.length, currentPlayerIndex).clone(),
+ elapsed: 0
+ };
+ isAnimating = true;
+ }
+ }, 80);
+}
+
+// ================= 游戏流程控制 =================
+function handleTileEffect(player, tileType) {
+ const zone = document.getElementById('action-zone');
+ const actualIncome = baseIncomeFor(player);
+ const actualExpense = Math.floor(500 * globalInflation);
+
+ if (tileType === "起点" || tileType === "收入格") {
+ player.money += actualIncome;
+ log(`💰 ${player.name} 领到薪资 +$${actualIncome}`);
+ showAllocationPhase();
+ } else if (tileType === "支出格") {
+ player.money -= actualExpense;
+ log(`💸 ${player.name} 支付开销 -$${actualExpense}`);
+ showAllocationPhase();
+ } else if (tileType === "风险格") {
+ player.happiness = Math.max(0, player.happiness - 1);
+ log(`⚡ ${player.name} 心情受损 -1❤️`);
+ showAllocationPhase();
+ } else if (tileType === "命运格") {
+ const card = fateCards[Math.floor(Math.random() * fateCards.length)];
+ card.effect(player);
+ log(`🔮 命运卡：${card.text}`);
+ showAllocationPhase();
+ } else if (tileType === "决策格") {
+ zone.innerHTML = `
+ <p style="font-size:13px; margin-top:0;"><b>⚖️ 决策抉择：</b></p>
+ <div class="decision-box">
+ <div class="opt-card" onclick="chooseDecision('A')">
+ <div class="opt-icon">💼</div>
+ <p style="margin:0; font-weight:bold;">加班熬夜</p>
+ <span style="color:var(--nature-green)">+$1200</span> | <span style="color:var(--nature-pink)">-1❤️</span>
+ </div>
+ <div class="opt-card" onclick="chooseDecision('B')">
+ <div class="opt-icon">🏖️</div>
+ <p style="margin:0; font-weight:bold;">陪伴家人</p>
+ <span style="color:var(--nature-pink)">-$${actualExpense}</span> | <span style="color:var(--nature-green)">+2❤️</span>
+ </div>
+ </div>`;
+ } else {
+ showAllocationPhase();
+ }
+ updateUI();
+}
+
+function chooseDecision(choice) {
+ let p = players[currentPlayerIndex];
+ if (choice === 'A') {
+ p.money += 1200; p.happiness = Math.max(0, p.happiness - 1);
+ log(`💼 ${p.name} 选择加班`);
+ } else {
+ p.money -= Math.floor(400 * globalInflation); p.happiness += 2;
+ log(`🏖️ ${p.name} 选择旅行`);
+ }
+ showAllocationPhase();
+}
+
+function showAllocationPhase() {
+ updateUI();
+ let p = players[currentPlayerIndex];
+ document.getElementById('action-zone').innerHTML = `
+ <p style="font-size:12px; margin-top:0;"><b>本轮结算：</b></p>
+ <button class="btn" style="font-size:12px; padding:8px; margin-bottom:6px;" onclick="doSideHustle()" ${p.usedHustleThisTurn ? 'disabled' : ''}>💪 兼职一次 (+$${Math.floor(300 * salaryRate)})</button>
+ <button class="btn btn-accent" style="font-size:12px; padding:8px;" onclick="nextPlayerTurn()">🌙 进入下一轮</button>
+ `;
+}
+
+function doSideHustle() {
+ let p = players[currentPlayerIndex];
+ if (!p.usedHustleThisTurn) {
+ p.usedHustleThisTurn = true;
+ p.money += Math.floor(300 * salaryRate);
+ showAllocationPhase();
+ }
+}
+
+function nextPlayerTurn() {
+ currentPlayerIndex++;
+ if (currentPlayerIndex >= players.length) {
+ currentPlayerIndex = 0;
+ currentRound++;
+ if (currentRound > totalRounds) {
+ document.getElementById('game-screen').classList.remove('active');
+ document.getElementById('end-screen').classList.add('active');
+ runAwardsCeremony();
+ return;
+ } else {
+ checkAndTriggerMacroEvent();
+ return;
+ }
+ }
+ startPlayerTurnInit();
+}
+
+// ================= 🏆 结算颁奖 =================
+function netWorth(p) { return p.money + p.savings; }
+function overallScore(p) { return netWorth(p) + p.happiness * 300; }
+
+function runAwardsCeremony() {
+ const zone = document.getElementById('leaderboard-zone');
+ zone.innerHTML = `<p style="font-size:13px; color:var(--nature-sky)">📊 正在计算最终成绩...</p>`;
+ setTimeout(showPodiumReveal, 1000);
+}
+
+function showPodiumReveal() {
+ const zone = document.getElementById('leaderboard-zone');
+ const ranked = [...players].sort((a, b) => overallScore(b) - overallScore(a));
+ const top3 = ranked.slice(0, 3);
+ const visualOrder = [top3[1], top3[0], top3[2]];
+ const medals = ["🥈", "🥇", "🥉"];
+ const heights = [80, 110, 65];
+
+ zone.innerHTML = `
+ <h3 style="color:var(--nature-gold); font-size:1rem; margin-top:0;">🏆 结算排行榜</h3>
+ <div class="podium-stage">
+ ${visualOrder.map((p, i) => p ? `
+ <div class="podium-block" style="height:${heights[i]}px;">
+ <div class="podium-medal">${medals[i]}</div>
+ <div class="podium-player">${p.icon} ${p.name}</div>
+ <div class="podium-score">$${overallScore(p)}</div>
+ </div>` : '').join('')}
+ </div>`;
+}
+</script>
+</body>
+</html>
