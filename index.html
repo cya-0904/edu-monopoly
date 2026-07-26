@@ -326,14 +326,14 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
  <div class="lobby-actions">
  <button class="lobby-big-btn lobby-create" onclick="openCreateRoom()">
  🏠 创建房间
- <span class="sub">生成 6 位邀请码，等待 3 位伙伴加入</span>
+ <span class="sub">生成 6 位邀请码，等待 1~3 位伙伴加入</span>
  </button>
  <button class="lobby-big-btn lobby-join" onclick="openJoinRoom()">
  🚪 加入房间
  <span class="sub">输入房主屏幕上的 6 位邀请码</span>
  </button>
  </div>
- <p class="lobby-hint">🌤️ 本局为 4 人联机模式：房主创建房间后把邀请码分享给伙伴，<br>四人齐聚后房主即可按下「开始」。</p>
+ <p class="lobby-hint">🌤️ 联机模式支持 2~4 人：房主创建房间后把邀请码分享给伙伴，<br>房间内满 2 人房主即可按下「开始」，最多可容纳 4 人。</p>
  <span class="lobby-local-link" onclick="startLocalMode()">或：本地同屏游戏（2~4 人共用一台设备）</span>
 </div>
 
@@ -554,7 +554,8 @@ const ROOM_BG = {
 /* 若你的背景图本身已经带有说明文字，把下面改成 true 可隐藏内建的那行字 */
 const ROOM_BG_HAS_TEXT = false;
 
-const ROOM_MAX = 4;                                   // 满员人数
+const ROOM_MIN = 2;                                   // 最少开局人数
+const ROOM_MAX = 4;                                   // 房间上限人数
 const CODE_LEN = 6;                                   // 邀请码长度
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I/O/0/1
 const PEER_PREFIX = 'tradeoff-skycity-';
@@ -702,7 +703,7 @@ function openHostPeer(attempt) {
 
 function onClientConnected(conn) {
  if (NET.locked || NET.started) { conn.send({ t: 'reject', reason: '房间已经开局啦' }); setTimeout(() => conn.close(), 400); return; }
- if (NET.roster.length >= ROOM_MAX) { conn.send({ t: 'reject', reason: '房间已满（4/4）' }); setTimeout(() => conn.close(), 400); return; }
+ if (NET.roster.length >= ROOM_MAX) { conn.send({ t: 'reject', reason: `房间已满（${ROOM_MAX}/${ROOM_MAX}）` }); setTimeout(() => conn.close(), 400); return; }
 
  NET.conns.push(conn);
  const idx = NET.roster.length;
@@ -727,6 +728,7 @@ function onClientDisconnected(conn) {
  NET.roster[ri].online = false;
  log(`📴 ${NET.roster[ri].name} 掉线了（其回合将由房主代为操作）`);
  updateUI();
+ renderActionZone();
  } else {
  const leaver = NET.roster[ri].name;
  NET.roster.splice(ri, 1);
@@ -908,7 +910,9 @@ function onClientReceive(msg) {
 // ---------------------- 房间界面渲染 ----------------------
 function renderRoom() {
  const n = NET.roster.length;
- document.getElementById('room-count').innerHTML = `房间内玩家：<b>${n}</b> / ${ROOM_MAX} 位`;
+ document.getElementById('room-count').innerHTML =
+ `房间内玩家：<b>${n}</b> / ${ROOM_MAX} 位` +
+ (n < ROOM_MIN ? `　（满 ${ROOM_MIN} 人即可开始）` : '');
 
  const chips = document.getElementById('room-chips');
  let html = '';
@@ -927,8 +931,8 @@ function renderRoom() {
 
  const btn = document.getElementById('room-start-btn');
  if (isHost()) {
- btn.disabled = !(NET.code && n >= ROOM_MAX);
- btn.innerText = n >= ROOM_MAX ? '开始' : `开始 (${n}/${ROOM_MAX})`;
+ btn.disabled = !(NET.code && n >= ROOM_MIN);
+ btn.innerText = n >= ROOM_MIN ? '开始' : `开始 (${n}/${ROOM_MIN})`;
  }
 }
 
@@ -943,7 +947,7 @@ function copyRoomCode() {
 
 // ---------------------- 房主开局 → 各自挑选化身 ----------------------
 function hostStartRoom() {
- if (!isHost() || NET.roster.length < ROOM_MAX) return;
+ if (!isHost() || NET.roster.length < ROOM_MIN) return;
  NET.locked = true;
  broadcast({ t: 'tosetup' });
  enterMultiSetup();
@@ -1071,7 +1075,13 @@ function applyRemoteState(s) {
  renderActionZone();
 }
 
-function isMyTurn() { return !isNet() || NET.myIndex === currentPlayerIndex; }
+function isMyTurn() {
+ if (!isNet()) return true;
+ if (NET.myIndex === currentPlayerIndex) return true;
+ // 掉线玩家的回合由房主代为操作，避免整局卡住
+ const cur = NET.roster[currentPlayerIndex];
+ return isHost() && cur && cur.online === false;
+}
 
 function generateNameInputs() {
  const count = parseInt(document.getElementById('player-count').value);
