@@ -125,6 +125,9 @@ h1 {
 .player-card.current { box-shadow: 0 0 15px rgba(56, 189, 248, 0.3); background: rgba(30, 41, 59, 0.9); }
 .player-card p { margin: 3px 0; font-size: 12px; color: #cbd5e1; }
 .player-card h4 { margin: 0 0 4px 0; font-size: 13px; }
+.player-card .networth-row { margin-top: 6px; padding-top: 6px; border-top: 1px dashed rgba(255,255,255,0.15); font-size: 12.5px; }
+.player-card .networth-row b { color: var(--nature-sky); font-size: 14px; }
+.player-card .nw-hint { display: block; font-size: 9.5px; color: #64748b; margin-top: 1px; }
 
 .economy-status { display: flex; gap: 8px; margin-bottom: 12px; padding: 8px 10px; background: rgba(0,0,0,0.4); border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); justify-content: space-around; font-size: 12px; flex-wrap: wrap; }
 .eco-bad { color: var(--nature-red); font-weight: bold; }
@@ -1299,9 +1302,10 @@ function updateUI() {
  <h4 style="color:${p.color}">${p.icon} ${esc(p.name)}${isNet() && idx === NET.myIndex ? '<span class="you-tag">你</span>' : ''}${off ? '<span class="offline-tag">掉线</span>' : ''}</h4>
  <span class="job-badge">${p.job.name}</span>
  <p>💵 现金: <b style="color:var(--nature-gold);">${money(p.money)}</b></p>
- <p>🏠 房产: <b>${p.propCount}</b> 处 ｜ 📈 资产: ${money(p.investValue)}</p>
- <p>🏦 存款: ${money(p.savings)} ｜ 💳 负债: <span style="color:${p.debt ? 'var(--nature-red)' : '#64748b'}">${money(p.debt)}</span></p>
- <p>❤️ 幸福感: <b>${p.happiness}</b>${p.skill ? ` ｜ 🎓 技能 +${Math.round(p.skill * 100)}%` : ''}</p>
+ <p>🏠 房产: <b>${p.propCount}</b> 处（市值 <b style="color:var(--nature-green)">${money(propertyValue(p))}</b>）</p>
+ <p>📈 投资: ${money(p.investValue)} ｜ 🏦 存款: ${money(p.savings)}</p>
+ <p>💳 负债: <span style="color:${p.debt ? 'var(--nature-red)' : '#64748b'}">${money(p.debt)}</span> ｜ ❤️ 幸福感: <b>${p.happiness}</b>${p.skill ? ` ｜ 🎓 +${Math.round(p.skill * 100)}%` : ''}</p>
+ <p class="networth-row">💎 身家合计: <b>${money(netWorth(p))}</b><span class="nw-hint">现金+房产+投资+存款−负债</span></p>
  </div>`;
  }).join('');
  renderBoard();
@@ -1790,7 +1794,8 @@ function applyChoice(key) {
  if (key === 'buy' && propOwner[i] === -1 && p.money >= BOARD[i].price) {
  p.money -= BOARD[i].price; propOwner[i] = p.seat; p.propCount++;
  log(`🏠 ${p.name} 买下了 ${BOARD[i].name}`);
- out = `🏠 恭喜！<b>${BOARD[i].name}</b> 归你了，之后每有人经过收租 <b>${money(rentOf(i))}</b>。`;
+ out = `🏠 恭喜！<b>${BOARD[i].name}</b> 归你了，之后每有人经过收租 <b>${money(rentOf(i))}</b>。<br>
+ <span style="font-size:11px;color:#94a3b8">现金 ${money(-BOARD[i].price)}，但房产市值 ${money(BOARD[i].price)} 计入你的「身家合计」——钱只是<b>换了一种形式</b>，没有消失。</span>`;
  } else out = `🚶 决定不买 <b>${BOARD[i].name}</b>，留着现金。`;
  } else if (kind === 'upgrade') {
  const i = meta.i, cost = upgradeCost(i);
@@ -1903,6 +1908,16 @@ const RULES_HTML = `
 <h3>💭 什么是机会成本？</h3>
 <p>你选了 A，就等于放弃了 B 能带给你的最大好处，<b>那份放弃掉的好处就是机会成本</b>。<br>
 例：花 $800 买黄金，机会成本是「这 $800 本来可以买下一间房收租」。游戏里每个选项下方的 💭 就是在提醒你这件事。</p>
+
+<h3>💎 看懂你的面板</h3>
+<ul>
+<li><b>💵 现金</b>：手上能马上花的钱。</li>
+<li><b>🏠 房产（市值）</b>：你买下的房子值多少钱。买房时现金变少、房产市值变多，<span class="hl">钱只是换了形式，没有消失</span>；升级还会让市值再往上加。</li>
+<li><b>📈 投资</b>：黄金与股票的<b>当前市值</b>（不包含房产）。会被金融风暴腰斩、也会被牛市拉高。</li>
+<li><b>🏦 存款</b>：定存的本金，结算时按 ×1.08 计入。</li>
+<li><b>💳 负债</b>：贷款或刷卡欠下的钱，结算时要扣掉。</li>
+<li><b>💎 身家合计</b> = 现金 + 房产市值 + 投资 + 存款(×1.08) − 负债。<br>再加上 <b>幸福感 × $300</b> 就是最后的总分。</li>
+</ul>
 
 <h3>🏠 房产玩法（大富翁规则）</h3>
 <ul>
