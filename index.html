@@ -176,6 +176,32 @@ h1 {
 .opt-cost { font-size: 11px; color: #fca5a5; margin-top: 5px; display: block; }
 .opt-cost b { color: var(--nature-gold); }
 
+/* 💬 房东开价面板 */
+.price-row { display: flex; align-items: center; gap: 6px; margin: 10px 0 8px; }
+.price-row .price-cur { font-size: 20px; font-weight: bold; color: var(--nature-gold); }
+.price-row input { font-size: 20px; font-weight: bold; text-align: center; font-family: 'Courier New', monospace; }
+.price-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.price-quick .btn { width: auto; flex: 1; padding: 6px 8px; font-size: 11px; }
+.price-btns { display: flex; gap: 8px; margin-bottom: 8px; }
+.price-btns .btn { flex: 1; padding: 10px 8px; font-size: 13px; }
+
+/* 🗺️ 地图选择 */
+.map-grid { display: grid; grid-template-columns: 1fr; gap: 10px; margin-top: 8px; }
+.map-card {
+ display: flex; gap: 10px; align-items: flex-start; text-align: left; cursor: pointer;
+ background: rgba(15,23,42,0.7); border: 1px solid rgba(255,255,255,0.12);
+ border-radius: 12px; padding: 10px 12px; transition: all 0.15s ease;
+}
+.map-card:hover { border-color: var(--nature-sky); transform: translateY(-1px); }
+.map-card.selected { border-color: var(--nature-gold); background: rgba(251,191,36,0.12); box-shadow: 0 0 12px rgba(251,191,36,0.22); }
+.map-card.locked { cursor: default; opacity: 0.75; }
+.map-card .m-icon { font-size: 30px; line-height: 1; }
+.map-card .m-name { font-weight: bold; font-size: 14px; }
+.map-card .m-tag { font-size: 10px; color: var(--nature-gold); border: 1px solid rgba(251,191,36,0.4); border-radius: 999px; padding: 1px 7px; margin-left: 6px; }
+.map-card .m-desc { font-size: 11.5px; color: #cbd5e1; margin-top: 3px; line-height: 1.5; }
+.map-card .m-stat { font-size: 10.5px; color: #94a3b8; margin-top: 3px; }
+@media (min-width: 768px) { .map-grid { grid-template-columns: repeat(3, 1fr); } .map-card { flex-direction: column; } }
+
 .result-box { background: rgba(2,6,23,0.5); border-left: 3px solid var(--nature-gold); border-radius: 8px; padding: 10px; font-size: 13px; line-height: 1.6; }
 
 .log-box { background: #090d16; color: #93c5fd; padding: 10px; border-radius: 10px; height: 120px; overflow-y: auto; font-family: monospace; font-size: 11px; }
@@ -472,6 +498,11 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
 <!-- ===== 🎭 名字与角色选择 ===== -->
 <div id="setup-screen" class="setup-screen">
  <h2 style="font-size:1.2rem; text-align:center;" id="setup-title">玩家初始化</h2>
+ <div class="setup-group">
+ <label style="display:block; margin-bottom:6px; font-weight:bold; font-size:13px;">🗺️ 选择地图：</label>
+ <div class="map-grid" id="map-grid"></div>
+ <p id="map-lock-tip" style="display:none;font-size:11px;color:#94a3b8;margin:6px 0 0;">地图由房主选择</p>
+ </div>
  <div class="setup-group" id="player-count-group">
  <label style="display:block; margin-bottom:6px; font-weight:bold; font-size:13px;">选择探索者数量:</label>
  <select id="player-count" onchange="generateNameInputs()">
@@ -603,6 +634,7 @@ let economyStateName = "和平稳定";
 const CHOICE_SECONDS = 60;   // ⏱️ 每次做选择的限时（1 分钟）
 const ROLL_SECONDS = 60;     // ⏱️ 掷骰限时（1 分钟）
 const RESULT_MS = 2800;      // 结果展示后自动换人
+const VOTE_COOLDOWN_MS = 60000;  // 🛑 紧急结算冷却：1 分钟只能发起一次
 
 const JOBS = [
  { name: "教师", salary: 2500 }, { name: "护士", salary: 2550 },
@@ -614,7 +646,11 @@ const JOBS = [
  { name: "程序员", salary: 3300 }, { name: "工程师", salary: 3400 },
  { name: "公务员", salary: 3500 }, { name: "会计师", salary: 3800 },
  { name: "建筑师", salary: 4000 }, { name: "企业经理", salary: 4300 },
- { name: "律师", salary: 4600 }, { name: "医生", salary: 5000 }
+ { name: "律师", salary: 4600 }, { name: "医生", salary: 5000 },
+ { name: "咖啡师", salary: 2450 }, { name: "理发师", salary: 2900 },
+ { name: "健身教练", salary: 3050 }, { name: "空乘人员", salary: 3600 },
+ { name: "药剂师", salary: 4100 }, { name: "数据分析师", salary: 4400 },
+ { name: "牙医", salary: 4800 }, { name: "机长", salary: 5400 }
 ];
 
 /* 🎭 16 个角色，任何人都可以自由选择（不锁定、允许重复） */
@@ -631,79 +667,153 @@ const ANIMALS = [
 /* 座位颜色：即使两人选了同一个角色，棋子颜色也不同 */
 const SEAT_COLORS = ["#fb923c", "#38bdf8", "#4ade80", "#f472b6", "#a78bfa", "#facc15"];
 
-// ================= 🗺️ 棋盘（32 格，含 10 处房产） =================
 const TILE_STYLE = {
  go:{c:"#15803d"}, income:{c:"#16a34a"}, expense:{c:"#b91c1c"}, bank:{c:"#c2410c"},
  decision:{c:"#a16207"}, invest:{c:"#0369a1"}, chance:{c:"#7e22ce"}, risk:{c:"#9f1239"},
  rest:{c:"#475569"}, jail:{c:"#1e293b"}, fate:{c:"#6d28d9"}, job:{c:"#0e7490"}, tax:{c:"#854d0e"},
  prop:{c:"#1d4ed8"}
 };
+const P = (name, icon, price, rent, color) => ({ t:"prop", name, icon, price, rent, color });
 
-const BOARD = [
- { t:"go",       name:"起点",     icon:"🏁" },
- { t:"prop",     name:"晨曦小屋", icon:"🏠", price:600,  rent:70,  color:"#1d4ed8" },
- { t:"income",   name:"收入格",   icon:"💰" },
- { t:"chance",   name:"机会格",   icon:"🎁" },
- { t:"prop",     name:"溪畔民宿", icon:"🏡", price:700,  rent:85,  color:"#1d4ed8" },
- { t:"expense",  name:"支出格",   icon:"💸" },
- { t:"invest",   name:"投资格",   icon:"📈" },
- { t:"prop",     name:"云顶咖啡", icon:"☕", price:900,  rent:110, color:"#0f766e" },
- { t:"rest",     name:"平安驿站", icon:"🍃" },
- { t:"decision", name:"决策格",   icon:"⚖️" },
- { t:"prop",     name:"星光书屋", icon:"📚", price:1000, rent:125, color:"#0f766e" },
- { t:"bank",     name:"银行格",   icon:"🏦" },
- { t:"risk",     name:"风险格",   icon:"⚡" },
- { t:"prop",     name:"彩虹面包", icon:"🥐", price:1100, rent:140, color:"#0f766e" },
- { t:"fate",     name:"命运格",   icon:"🔮" },
- { t:"tax",      name:"税务格",   icon:"🧾" },
- { t:"jail",     name:"拘留所",   icon:"🚔" },
- { t:"prop",     name:"海风民宿", icon:"⛵", price:1200, rent:160, color:"#7e22ce" },
- { t:"income",   name:"收入格",   icon:"💰" },
- { t:"chance",   name:"机会格",   icon:"🎁" },
- { t:"prop",     name:"极光影院", icon:"🎬", price:1400, rent:190, color:"#7e22ce" },
- { t:"job",      name:"跳槽格",   icon:"💼" },
- { t:"invest",   name:"投资格",   icon:"📈" },
- { t:"prop",     name:"云端健身", icon:"🏋️", price:1500, rent:210, color:"#7e22ce" },
- { t:"fate",     name:"命运广场", icon:"🔮" },
- { t:"expense",  name:"支出格",   icon:"💸" },
- { t:"prop",     name:"天空乐园", icon:"🎡", price:1800, rent:260, color:"#c2410c" },
- { t:"decision", name:"决策格",   icon:"⚖️" },
- { t:"chance",   name:"机会格",   icon:"🎁" },
- { t:"prop",     name:"星港商城", icon:"🛍️", price:2000, rent:300, color:"#be123c" },
- { t:"bank",     name:"银行格",   icon:"🏦" },
- { t:"income",   name:"收入格",   icon:"💰" }
+// =====================================================================
+// 🗺️ 三张地图，开局前可自由挑选
+// =====================================================================
+const MAPS = [
+ {
+ id: "sky", name: "天空之城", icon: "🌤️", tag: "均衡入门",
+ desc: "10 处房产，各类格子分布均衡，适合第一次玩的人。",
+ tiles: [
+ { t:"go", name:"起点", icon:"🏁" },
+ P("晨曦小屋","🏠",600,70,"#1d4ed8"),
+ { t:"income", name:"收入格", icon:"💰" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("溪畔民宿","🏡",700,85,"#1d4ed8"),
+ { t:"expense", name:"支出格", icon:"💸" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ P("云顶咖啡","☕",900,110,"#0f766e"),
+ { t:"rest", name:"平安驿站", icon:"🍃" },
+ { t:"decision", name:"决策格", icon:"⚖️" },
+ P("星光书屋","📚",1000,125,"#0f766e"),
+ { t:"bank", name:"银行格", icon:"🏦" },
+ { t:"risk", name:"风险格", icon:"⚡" },
+ P("彩虹面包","🥐",1100,140,"#0f766e"),
+ { t:"fate", name:"命运格", icon:"🔮" },
+ { t:"tax", name:"税务格", icon:"🧾" },
+ { t:"jail", name:"拘留所", icon:"🚔" },
+ P("海风民宿","⛵",1200,160,"#7e22ce"),
+ { t:"income", name:"收入格", icon:"💰" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("极光影院","🎬",1400,190,"#7e22ce"),
+ { t:"job", name:"跳槽格", icon:"💼" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ P("云端健身","🏋️",1500,210,"#7e22ce"),
+ { t:"fate", name:"命运广场", icon:"🔮" },
+ { t:"expense", name:"支出格", icon:"💸" },
+ P("天空乐园","🎡",1800,260,"#c2410c"),
+ { t:"decision", name:"决策格", icon:"⚖️" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("星港商城","🛍️",2000,300,"#be123c"),
+ { t:"bank", name:"银行格", icon:"🏦" },
+ { t:"income", name:"收入格", icon:"💰" }
+ ]
+ },
+ {
+ id: "ocean", name: "深海之城", icon: "🌊", tag: "地产大战",
+ desc: "13 处房产，房价与租金战场；喜欢当房东、抢地盘的人选这张。",
+ tiles: [
+ { t:"go", name:"起点海港", icon:"🏁" },
+ P("珊瑚小筑","🪸",500,65,"#0e7490"),
+ { t:"income", name:"洋流收入", icon:"💰" },
+ P("贝壳市集","🐚",650,85,"#0e7490"),
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("海草农场","🌿",750,95,"#0e7490"),
+ { t:"expense", name:"支出格", icon:"💸" },
+ P("灯塔旅店","🗼",850,110,"#0284c7"),
+ { t:"rest", name:"静水湾", icon:"🍃" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ P("沉船宝库","🪙",950,125,"#0284c7"),
+ P("珍珠工坊","🦪",1050,140,"#0284c7"),
+ { t:"bank", name:"银行格", icon:"🏦" },
+ P("深海温泉","♨️",1150,155,"#7e22ce"),
+ { t:"fate", name:"命运格", icon:"🔮" },
+ P("鲸歌剧院","🐋",1250,170,"#7e22ce"),
+ { t:"jail", name:"海底监牢", icon:"🚔" },
+ { t:"decision", name:"决策格", icon:"⚖️" },
+ P("潮汐公寓","🏢",1350,185,"#7e22ce"),
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("海神广场","🔱",1500,210,"#be185d"),
+ { t:"tax", name:"税务格", icon:"🧾" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ P("极地冰宫","🧊",1650,235,"#be185d"),
+ { t:"fate", name:"命运漩涡", icon:"🔮" },
+ { t:"job", name:"跳槽格", icon:"💼" },
+ P("深渊矿场","⛏️",1850,270,"#c2410c"),
+ { t:"risk", name:"风险格", icon:"⚡" },
+ { t:"income", name:"收入格", icon:"💰" },
+ P("水晶宫殿","💎",2100,315,"#be123c"),
+ { t:"bank", name:"银行格", icon:"🏦" },
+ { t:"decision", name:"决策格", icon:"⚖️" }
+ ]
+ },
+ {
+ id: "desert", name: "沙漠绿洲", icon: "🏜️", tag: "高风险高刺激",
+ desc: "只有 8 处房产，机会格、风险格与命运格特别多，靠运气与胆识翻身。",
+ tiles: [
+ { t:"go", name:"商队营地", icon:"🏁" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ { t:"income", name:"收入格", icon:"💰" },
+ P("绿洲水井","🕳️",700,100,"#0f766e"),
+ { t:"risk", name:"沙暴格", icon:"🌪️" },
+ { t:"expense", name:"支出格", icon:"💸" },
+ P("骆驼驿站","🐫",850,120,"#0f766e"),
+ { t:"fate", name:"命运格", icon:"🔮" },
+ { t:"rest", name:"棕榈树荫", icon:"🍃" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("香料集市","🧂",1000,140,"#a16207"),
+ { t:"decision", name:"决策格", icon:"⚖️" },
+ { t:"expense", name:"支出格", icon:"💸" },
+ P("蜃楼旅馆","🏨",1150,160,"#a16207"),
+ { t:"bank", name:"银行格", icon:"🏦" },
+ { t:"jail", name:"沙牢", icon:"🚔" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ { t:"risk", name:"沙暴格", icon:"🌪️" },
+ P("黄金矿脉","⛏️",1350,195,"#b45309"),
+ { t:"income", name:"收入格", icon:"💰" },
+ { t:"job", name:"跳槽格", icon:"💼" },
+ { t:"fate", name:"命运格", icon:"🔮" },
+ P("星夜观景","🔭",1500,215,"#b45309"),
+ { t:"fate", name:"命运沙丘", icon:"🔮" },
+ { t:"invest", name:"投资格", icon:"📈" },
+ { t:"chance", name:"机会格", icon:"🎁" },
+ P("古城遗迹","🏛️",1700,245,"#be185d"),
+ { t:"tax", name:"税务格", icon:"🧾" },
+ { t:"decision", name:"决策格", icon:"⚖️" },
+ P("苏丹宫殿","🕌",2000,300,"#be123c"),
+ { t:"risk", name:"沙暴格", icon:"🌪️" }
+ ]
+ }
 ];
 
-let propOwner = new Array(BOARD.length).fill(-1);   // -1 = 无人拥有
-let propLevel = new Array(BOARD.length).fill(0);    // 0=地皮 1=小屋 2=大楼
+let currentMapId = MAPS[0].id;
+let BOARD = MAPS[0].tiles;
+function mapById(id) { return MAPS.find(m => m.id === id) || MAPS[0]; }
+function setMap(id) {
+ currentMapId = mapById(id).id;
+ BOARD = mapById(id).tiles;
+ propOwner = new Array(BOARD.length).fill(-1);
+ propLevel = new Array(BOARD.length).fill(0);
+}
 
-const fateCards = [
- { text:"路边捡到许愿金币 +$500",              money:500,  happy:1 },
- { text:"云端感冒，医药费 -$300，心情 -1❤️",     money:-300, happy:-1 },
- { text:"彩虹幸运抽奖中奖 +$800",              money:800,  happy:0 },
- { text:"发电机损坏，维修 -$450",              money:-450, happy:0 },
- { text:"老朋友聚餐，心情大好 +2❤️",            money:0,    happy:2 },
- { text:"不慎遗失钱包 -$350，心情 -1❤️",        money:-350, happy:-1 },
- { text:"帮邻居修屋顶，收到谢礼 +$250 +1❤️",    money:250,  happy:1 },
- { text:"手机摔坏了 -$400",                    money:-400, happy:-1 }
-];
+let propOwner = new Array(32).fill(-1);   // -1 = 无人拥有
+let propLevel = new Array(32).fill(0);    // 0=地皮 1=小屋 2=大楼
 
-/* 🎁 机会格「抽卡」奖惩池：有奖也有罚 */
-const chanceCards = [
- { text:"🎉 中了社区抽奖头奖！", money:1500,  happy:2,  good:true },
- { text:"📈 你早年买的小股票暴涨！", money:900, happy:1, good:true },
- { text:"🎓 拿到进修奖学金，技能提升（往后收入 +10%）", money:0, happy:1, skill:0.1, good:true },
- { text:"🍀 路边捡到限量球鞋，转手卖出", money:600, happy:1, good:true },
- { text:"🚗 爱车被刮花，自付维修费", money:-700, happy:-1, good:false },
- { text:"🧾 收到一张忘了缴的罚单", money:-500, happy:-1, good:false },
- { text:"🦷 突然牙疼，紧急就医", money:-600, happy:-2, good:false },
- { text:"🚔 违规停车被拖吊，直接进拘留所反省一回合", money:-300, happy:-1, jail:true, good:false },
- { text:"💧 家里水管爆裂，紧急抢修", money:-800, happy:-1, good:false },
- { text:"🎁 神秘人送你一笔小礼金", money:400, happy:1, good:true }
-];
+/* 🎟️ 全场只开出一次的彩票 */
+let lottery = { won: false, winner: '', pot: 2500 };
 
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
+function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
 function pct(x) { return Math.round(x * 100) + "%"; }
 function shuffleArray(arr) {
  let a = arr.slice();
@@ -713,37 +823,287 @@ function shuffleArray(arr) {
 function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(n) { return (n < 0 ? "-$" : "$") + Math.abs(Math.round(n)).toLocaleString(); }
 
+// =====================================================================
+// 🎴 命运卡（20 张）：随机好事与坏事
+// =====================================================================
+const fateCards = [
+ { text:"🪙 路边捡到一袋许愿金币", fx:{ money:500, happy:1 } },
+ { text:"🤧 云端感冒，医药费不便宜", fx:{ money:-300, happy:-1 } },
+ { text:"🌈 彩虹幸运抽奖中了小奖", fx:{ money:800 } },
+ { text:"🔧 家里发电机损坏，紧急维修", fx:{ money:-450 } },
+ { text:"🍜 老朋友请你吃大餐，聊到深夜", fx:{ happy:2 } },
+ { text:"👛 不慎遗失钱包", fx:{ money:-350, happy:-1 } },
+ { text:"🛠️ 帮邻居修屋顶，收到谢礼", fx:{ money:250, happy:1 } },
+ { text:"📱 手机摔坏了，只好换新", fx:{ money:-400, happy:-1 } },
+ { text:"🎂 生日收到亲友红包", fx:{ money:600, happy:2 } },
+ { text:"🚲 自行车被偷了", fx:{ money:-250, happy:-1 } },
+ { text:"📦 网购退税退款到账", fx:{ money:350 } },
+ { text:"🐶 捡到走失的小狗，主人重金答谢", fx:{ money:700, happy:2 } },
+ { text:"🌧️ 忘了带伞淋成落汤鸡，心情不佳", fx:{ happy:-1 } },
+ { text:"📖 读了一本好书，想通了很多事", fx:{ happy:2, skill:0.05 } },
+ { text:"🧾 水电费比想象中高", fx:{ money:-280 } },
+ { text:"🎨 你的画在社区展览卖出去了", fx:{ money:900, happy:1 } },
+ { text:"🦴 运动扭伤，休养了一阵子", fx:{ money:-380, happy:-2 } },
+ { text:"🌱 阳台种的菜大丰收，分送邻居", fx:{ money:150, happy:2 } },
+ { text:"💡 想到一个省钱妙招，本月开销大减", fx:{ money:450 } },
+ { text:"🎧 耳机掉进水里，报销了", fx:{ money:-220, happy:-1 } }
+];
+
+// =====================================================================
+// 🎁 机会卡（20 张）：有大奖也有罚单
+// =====================================================================
+const chanceCards = [
+ { text:"🎉 中了社区抽奖头奖！", fx:{ money:1500, happy:2 }, good:true },
+ { text:"📈 你早年买的小股票暴涨！", fx:{ money:900, happy:1 }, good:true },
+ { text:"🎓 拿到进修奖学金，技能永久提升", fx:{ happy:1, skill:0.1 }, good:true },
+ { text:"🍀 路边捡到限量球鞋，转手卖出", fx:{ money:600, happy:1 }, good:true },
+ { text:"🎁 神秘人送你一笔小礼金", fx:{ money:400, happy:1 }, good:true },
+ { text:"📺 上了电视访谈，收到出场费", fx:{ money:1100, happy:2 }, good:true },
+ { text:"🏆 公司年度最佳员工，奖金入袋", fx:{ money:1300, happy:2 }, good:true },
+ { text:"🧧 远房亲戚寄来一笔遗产", fx:{ money:1800 }, good:true },
+ { text:"🚀 朋友的小生意分红给你", fx:{ money:750, happy:1 }, good:true },
+ { text:"🥇 马拉松夺冠，奖金加荣耀", fx:{ money:500, happy:3 }, good:true },
+ { text:"🚗 爱车被刮花，自付维修费", fx:{ money:-700, happy:-1 }, good:false },
+ { text:"🧾 收到一张忘了缴的罚单", fx:{ money:-500, happy:-1 }, good:false },
+ { text:"🦷 突然牙疼，紧急就医", fx:{ money:-600, happy:-2 }, good:false },
+ { text:"🚔 违规停车被拖吊，还得去警局反省一回合", fx:{ money:-300, happy:-1, jail:true }, good:false },
+ { text:"💧 家里水管爆裂，紧急抢修", fx:{ money:-800, happy:-1 }, good:false },
+ { text:"📉 听信明牌买错股票，小亏一笔", fx:{ money:-900 }, good:false },
+ { text:"🔥 厨房失火，还好只烧了柜子", fx:{ money:-1000, happy:-2 }, good:false },
+ { text:"😷 流感请假，扣了全勤奖", fx:{ money:-450, happy:-1 }, good:false },
+ { text:"📵 手机被诈骗集团骗走一笔钱", fx:{ money:-1200, happy:-2 }, good:false },
+ { text:"🧳 出门旅行行李遗失，重买用品", fx:{ money:-550, happy:-1 }, good:false }
+];
+
+// =====================================================================
+// 💸 支出格：6 种不同情境，每种的应对方式也不一样
+// =====================================================================
+const EXPENSE_SCENES = [
+ { icon:"🏥", title:"医疗账单来了", mult:1.0,
+ sub:"你半夜跑了一趟急诊，账单已经寄到家里。",
+ opts:[
+ { k:"pay", icon:"💳", label:"直接付清", detail:"一次结清，不留后患。", cost:"这笔钱本来可以拿去投资或买房。" },
+ { k:"hustle", icon:"💪", label:"接夜班兼职抵一半", detail:"用休息时间换钱，只付一半，心情 -1❤️。", fxExtra:{ happy:-1 }, half:true, cost:"省下的一半，是用<b>健康与睡眠</b>换的。" },
+ { k:"credit", icon:"🧾", label:"申请分期（+20% 利息）", detail:"这期不付现金，负债增加。", credit:1.2, def:true, cost:"现在轻松，未来要多还 20%——这就是<b>利息</b>。" }
+ ] },
+ { icon:"🚗", title:"车子进厂大修", mult:1.2,
+ sub:"引擎发出怪声，师傅说再拖下去会更贵。",
+ opts:[
+ { k:"pay", icon:"💳", label:"照价维修", detail:"修好它，继续安心通勤。", cost:"一笔现金变成了「不得不花」的钱。" },
+ { k:"hustle", icon:"🔧", label:"自己动手修一半", detail:"看影片自己修，省一半钱但心情 -1❤️。", fxExtra:{ happy:-1 }, half:true, cost:"你花掉的<b>整个周末</b>，是看不见的成本。" },
+ { k:"skip", icon:"🚌", label:"先不修，改搭公交", detail:"省下这笔钱，但通勤更累，心情 -2❤️。", free:true, def:true, cost:"省了钱，赔了<b>时间与舒适</b>；车况可能继续恶化。" }
+ ] },
+ { icon:"🎓", title:"孩子的学费单", mult:1.3,
+ sub:"新学期开始，学费与教材费一起送到。",
+ opts:[
+ { k:"pay", icon:"💳", label:"全额缴清", detail:"教育不能省，心情 +1❤️。", fxExtra:{ happy:1 }, cost:"现金减少，短期内买不了房也投不了资。" },
+ { k:"save", icon:"🏦", label:"动用存款支付", detail:"从定存里拿钱出来付，不动手上现金。", useSavings:true, cost:"提前解约，<b>失去 8% 的利息</b>。" },
+ { k:"credit", icon:"🧾", label:"办助学贷款（+20%）", detail:"先读书，以后再还。", credit:1.2, def:true, cost:"以后要还更多，但换来<b>现在的选择权</b>。" }
+ ] },
+ { icon:"💒", title:"好友的婚礼", mult:0.8,
+ sub:"从小玩到大的朋友结婚，红包该包多少？",
+ opts:[
+ { k:"big", icon:"🧧", label:"包个大红包", detail:"面子里子都有，心情 +2❤️。", mult:1.4, fxExtra:{ happy:2 }, cost:"多包的部分，是用钱买<b>关系与心情</b>。" },
+ { k:"pay", icon:"💐", label:"包标准金额", detail:"合乎行情，不多不少。", def:true, cost:"稳妥，但少了一点惊喜。" },
+ { k:"skip", icon:"📮", label:"只送祝福不出席", detail:"完全不花钱，但心情 -2❤️。", free:true, cost:"省下的钱，代价是<b>缺席了朋友的重要时刻</b>。" }
+ ] },
+ { icon:"🏠", title:"房子漏水了", mult:1.1,
+ sub:"天花板开始滴水，再不处理会泡坏地板。",
+ opts:[
+ { k:"pay", icon:"🛠️", label:"请师傅彻底整修", detail:"一次做到位。", cost:"大笔现金流出，但避免了更大的损失。" },
+ { k:"hustle", icon:"🪣", label:"先用水桶接着", detail:"只花一半钱做临时处理，心情 -1❤️。", fxExtra:{ happy:-1 }, half:true, def:true, cost:"拖延的代价是<b>问题会变大</b>，也影响生活品质。" },
+ { k:"save", icon:"🏦", label:"动用存款一次修好", detail:"从定存出钱，现金不受影响。", useSavings:true, cost:"提前解约，<b>失去利息</b>。" }
+ ] },
+ { icon:"🐱", title:"宠物生病了", mult:0.9,
+ sub:"陪你多年的猫食欲不振，兽医建议做全套检查。",
+ opts:[
+ { k:"pay", icon:"🏥", label:"做全套检查治疗", detail:"它值得最好的照顾，心情 +1❤️。", fxExtra:{ happy:1 }, cost:"这笔钱本可以用于自己的投资。" },
+ { k:"hustle", icon:"💊", label:"只拿基本药物", detail:"花一半钱先观察，心情 -1❤️。", fxExtra:{ happy:-1 }, half:true, def:true, cost:"省下的钱，换来的是<b>担心与不确定</b>。" },
+ { k:"credit", icon:"🧾", label:"刷卡分期（+20%）", detail:"先给它最好的，账单以后再说。", credit:1.2, cost:"未来多还 20%。" }
+ ] }
+];
+
+// =====================================================================
+// ⚖️ 决策格：6 种人生情境
+// =====================================================================
+const WORK_SCENES = [
+ { icon:"⚖️", title:"周末要怎么过？",
+ sub:"时间是最稀缺的资源，选了一个就等于放弃另一个。",
+ opts:[
+ { k:"a", icon:"💼", label:"接加班单 +$1,200", fx:{ money:1200, happy:-2 }, detail:"多赚一笔，但心情 -2❤️。", cost:"牺牲了健康与陪伴家人的时间（2 点幸福 = $600 分数）。" },
+ { k:"b", icon:"🏖️", label:"陪家人出游 -$300", fx:{ money:-300, happy:3 }, detail:"一起走走，心情 +3❤️。", cost:"放弃了 $1,200 的加班收入，还要花掉 $300。" },
+ { k:"c", icon:"🎓", label:"进修充电 -$800", fx:{ money:-800, skill:0.1 }, def:true, detail:"上课学新技能，往后<b>每次收入永久 +10%</b>。", cost:"短期现金减少也没休息，投资自己要等以后才回本。" }
+ ] },
+ { icon:"🤝", title:"朋友找你合伙",
+ sub:"老同学开了间小店，问你要不要一起做。",
+ opts:[
+ { k:"a", icon:"🏪", label:"投 $1,500 入股", fx:{ moneyRange:[-1500, -1500], bonusRange:[600, 3200] }, detail:"可能血本无归，也可能翻倍回来。", cost:"$1,500 押在别人的经营能力上，你无法控制结果。" },
+ { k:"b", icon:"🧑‍🏫", label:"只出主意不出钱", fx:{ money:300, happy:1 }, def:true, detail:"帮忙看账、给建议，收一点顾问费。", cost:"错过了可能翻倍的分红。" },
+ { k:"c", icon:"🚪", label:"婉拒，保持距离", fx:{ happy:-1 }, detail:"不冒险，但朋友有点失望。", cost:"保住了钱，可能伤了<b>人际关系</b>。" }
+ ] },
+ { icon:"🏃", title:"体检报告出来了",
+ sub:"医生说你该改变一下生活方式了。",
+ opts:[
+ { k:"a", icon:"🥗", label:"请营养师+健身房 -$700", fx:{ money:-700, happy:3 }, detail:"认真调整作息，心情 +3❤️。", cost:"$700 现金没了，但健康是长期资产。" },
+ { k:"b", icon:"🏃", label:"自己晨跑，零花费", fx:{ happy:1 }, def:true, detail:"免费但需要毅力，心情 +1❤️。", cost:"效果比较慢，也要用掉早晨的时间。" },
+ { k:"c", icon:"🍔", label:"照旧生活，继续拼", fx:{ money:600, happy:-2 }, detail:"把时间全拿去赚钱 +$600，心情 -2❤️。", cost:"用<b>健康</b>换钱，是最贵的一种借贷。" }
+ ] },
+ { icon:"🏡", title:"要不要搬家？",
+ sub:"市区房租贵但通勤近，郊区便宜但每天多花两小时。",
+ opts:[
+ { k:"a", icon:"🌆", label:"住市区 -$600", fx:{ money:-600, happy:2 }, detail:"通勤 10 分钟，生活轻松，心情 +2❤️。", cost:"每月多付 $600，这是<b>用钱买时间</b>。" },
+ { k:"b", icon:"🌄", label:"搬去郊区 +$400", fx:{ money:400, happy:-2 }, detail:"房租省下来 +$400，但每天通勤两小时，心情 -2❤️。", cost:"省下的钱，是<b>用时间换来的</b>。" },
+ { k:"c", icon:"🛋️", label:"维持现状", fx:{ happy:0 }, def:true, detail:"不折腾，什么都不变。", cost:"既没省到钱，也没换到更好的生活。" }
+ ] },
+ { icon:"📱", title:"社交媒体的诱惑",
+ sub:"看到别人换新车、去旅行，你也有点心动。",
+ opts:[
+ { k:"a", icon:"✈️", label:"跟风去旅行 -$1,000", fx:{ money:-1000, happy:4 }, detail:"确实很开心，心情 +4❤️。", cost:"$1,000 本来可以当买房的头期款。" },
+ { k:"b", icon:"📵", label:"关掉手机，专心存钱", fx:{ money:200, happy:-1 }, def:true, detail:"省下冲动消费 +$200，但有点闷，心情 -1❤️。", cost:"错过了一段可能很难忘的体验。" },
+ { k:"c", icon:"🏕️", label:"改成便宜的近郊露营 -$200", fx:{ money:-200, happy:2 }, detail:"花小钱也能很快乐，心情 +2❤️。", cost:"没有远行的震撼，但性价比最高。" }
+ ] },
+ { icon:"🧑‍🍳", title:"想开一间小店",
+ sub:"你一直有个开店的梦，但现在是好时机吗？",
+ opts:[
+ { k:"a", icon:"🏪", label:"辞职创业 -$2,000", fx:{ money:-2000, bonusRange:[0, 4500], happy:1 }, detail:"投入全部积蓄，结果完全不可预测。", cost:"放弃了稳定薪水，这是<b>最大的一笔机会成本</b>。" },
+ { k:"b", icon:"🌙", label:"下班后先做副业 -$500", fx:{ money:-500, bonusRange:[300, 1400] }, def:true, detail:"边上班边试水温，风险小一些。", cost:"要牺牲晚上的休息时间。" },
+ { k:"c", icon:"💭", label:"再想想，先存钱", fx:{ money:250 }, detail:"把创业基金存起来 +$250。", cost:"梦想被推迟，机会可能不会再来。" }
+ ] }
+];
+
+// =====================================================================
+// 📈 投资格：4 种不同的投资菜单
+// =====================================================================
+const INVEST_SCENES = [
+ { icon:"📈", title:"投资机会：稳健 vs 波动",
+ sub:"手上的现金可以变成资产，也可能缩水。三条路，各有代价：",
+ opts:[
+ { k:"gold", icon:"🥇", label:"买入黄金 $800", cost0:800, asset:"gold", range:[760,1060], detail:"保值型资产：换来价值约 $760~$1,060 的黄金，波动小，抗通胀。", cost:"$800 现金被锁进黄金，遇到急用钱时不够灵活。" },
+ { k:"stock", icon:"📊", label:"买入股票 $600", cost0:600, asset:"stock", range:[300,1150], detail:"高风险高回报：换来价值 $300~$1,150 的股票，波动大。", cost:"可能血本无归；这 $600 本可以稳稳买黄金或存银行。" },
+ { k:"none", icon:"🛡️", label:"不投资，留着现金", def:true, detail:"保持全部流动性，随时能买房或应急。", cost:"错过潜在收益，且通胀会慢慢吃掉现金的购买力。" }
+ ] },
+ { icon:"🏦", title:"理财专员来推销",
+ sub:"银行推出了两档新产品，还是你要自己留现金？",
+ opts:[
+ { k:"gold", icon:"🪙", label:"黄金存折 $1,000", cost0:1000, asset:"gold", range:[960,1300], detail:"跟着金价走，长期抗通胀，波动温和。", cost:"$1,000 被套住，且黄金不会生利息。" },
+ { k:"stock", icon:"🌐", label:"全球指数基金 $900", cost0:900, asset:"stock", range:[520,1650], detail:"分散投资全世界，长期看好但短期会跳动。", cost:"遇到金融风暴时可能腰斩。" },
+ { k:"none", icon:"🛡️", label:"我再想想", def:true, detail:"什么都不买。", cost:"错过了两档产品的潜在收益。" }
+ ] },
+ { icon:"💻", title:"朋友在聊加密货币",
+ sub:"「早买早自由」——真的吗？先看清楚风险。",
+ opts:[
+ { k:"stock", icon:"🪐", label:"梭哈加密货币 $700", cost0:700, asset:"stock", range:[100,2200], detail:"暴涨暴跌：可能只剩 $100，也可能变成 $2,200。", cost:"极高风险；这 $700 输光了就真的没了。" },
+ { k:"gold", icon:"🥇", label:"还是买黄金 $800", cost0:800, asset:"gold", range:[780,1080], detail:"老派但踏实。", cost:"注定赚不到暴利。" },
+ { k:"none", icon:"🛡️", label:"完全不碰", def:true, detail:"看不懂的东西不投。", cost:"如果它真的涨了，你会很后悔——但这是理性的代价。" }
+ ] },
+ { icon:"🏗️", title:"房地产信托来募资",
+ sub:"不用真的买房，也能参与房地产收益。",
+ opts:[
+ { k:"gold", icon:"🏢", label:"房地产信托 $1,200", cost0:1200, asset:"gold", range:[1150,1700], detail:"收益稳定，跟着租金市场走。", cost:"$1,200 是一间小房子的头期款，你放弃了当真房东。" },
+ { k:"stock", icon:"🚀", label:"新创科技股 $500", cost0:500, asset:"stock", range:[120,1500], detail:"小额下注，但输赢差距极大。", cost:"高机率归零。" },
+ { k:"none", icon:"🛡️", label:"保留现金", def:true, detail:"等更好的时机。", cost:"通胀正在悄悄吃掉你的购买力。" }
+ ] }
+];
+
+// =====================================================================
+// 🏦 银行格：3 种不同的情境
+// =====================================================================
+const BANK_SCENES = [
+ { icon:"🏦", title:"银行时间",
+ sub:"存款、借贷，还是什么都不做？",
+ opts:[
+ { k:"save", icon:"🏦", label:"定存 $1,000（结算 ×1.08）", save:1000, detail:"安全稳定，结算时连本带利 $1,080。", cost:"这 $1,000 被锁住，期间不能买房或投资。" },
+ { k:"loan", icon:"💳", label:"贷款 $1,500（须还 $1,800）", loan:1500, owe:1800, detail:"马上多出现金，可以抢在别人之前买房。", cost:"多付的 $300 就是<b>借钱的价格</b>。" },
+ { k:"none", icon:"🚪", label:"什么都不做", def:true, detail:"维持现状，保持灵活。", cost:"放弃 8% 利息，也放弃抢房的机会。" }
+ ] },
+ { icon:"📉", title:"央行宣布降息",
+ sub:"存款利息变少了，但借钱也变便宜了。",
+ opts:[
+ { k:"save", icon:"🐖", label:"仍然定存 $800（×1.08）", save:800, detail:"利率低但至少不会亏。", cost:"低利率时代，存款几乎跑不赢通胀。" },
+ { k:"loan", icon:"🏗️", label:"低息贷款 $2,000（须还 $2,200）", loan:2000, owe:2200, detail:"利息只要 10%，是扩张的好时机。", cost:"负债变多，万一遇上危机会很吃力。" },
+ { k:"none", icon:"🚪", label:"按兵不动", def:true, detail:"再观望一阵。", cost:"错过了这波便宜的资金。" }
+ ] },
+ { icon:"🧾", title:"你收到一封催缴信",
+ sub:"如果身上有负债，现在是处理它的好时机。",
+ opts:[
+ { k:"repay", icon:"✅", label:"提前还清部分负债 $800", repay:800, detail:"减少负债，结算时少扣一笔。", cost:"$800 现金消失，短期变得更紧。" },
+ { k:"save", icon:"🏦", label:"先存 $1,000 保命钱", save:1000, detail:"建立应急基金，结算时 ×1.08。", cost:"债还在那里，利息不会自己消失。" },
+ { k:"none", icon:"🚪", label:"以后再说", def:true, detail:"什么都不做。", cost:"拖延通常只会让问题变贵。" }
+ ] }
+];
+
+// =====================================================================
+// ⚡ 风险格 / 🍃 平安格 / 🧾 税务格 的多种事件
+// =====================================================================
+const RISK_EVENTS = [
+ { icon:"⚡", text:"突然停电，冰箱里的食材全坏了", lossRange:[200,420], happy:-1 },
+ { icon:"🌪️", text:"一场沙暴/强风掀掉了屋顶瓦片", lossRange:[320,600], happy:-1 },
+ { icon:"🦠", text:"办公室群聚感染，你也中招请假", lossRange:[250,480], happy:-2 },
+ { icon:"🐜", text:"家里出现白蚁，只能请人来处理", lossRange:[300,560], happy:-1 },
+ { icon:"📉", text:"你持有的资产被市场情绪拖累", assetHit:0.15, happy:-1 },
+ { icon:"🚿", text:"热水器半夜罢工，只能连夜换新", lossRange:[380,650], happy:-1 },
+ { icon:"👜", text:"在市集被扒手偷走了钱包", lossRange:[220,500], happy:-2 },
+ { icon:"🛞", text:"路上爆胎，还得叫拖车", lossRange:[180,400], happy:-1 }
+];
+const REST_EVENTS = [
+ { icon:"🍃", text:"你在树荫下睡了个好觉，什么都不想", happy:2 },
+ { icon:"🎣", text:"整天钓鱼，一条没钓到但很放松", happy:2 },
+ { icon:"☕", text:"在窗边喝咖啡看了一下午的书", happy:2, skill:0.05 },
+ { icon:"🎸", text:"和朋友即兴唱了一晚上的歌", happy:3, money:-120 },
+ { icon:"🧘", text:"做了一场冥想，脑袋前所未有地清楚", happy:2 },
+ { icon:"🌅", text:"起了个大早看日出，觉得一切都值得", happy:3 }
+];
+const TAX_EVENTS = [
+ { icon:"🧾", text:"年度所得税结算", rate:0.10, min:200, note:"税收是公共服务的价格，也是持有现金的成本之一。" },
+ { icon:"🏛️", text:"房产税单寄到了", rate:0.05, min:150, propRate:0.04, note:"资产越多，要缴的税也越多——这是当房东的隐藏成本。" },
+ { icon:"🛃", text:"海外购物被课了关税", rate:0.07, min:180, note:"跨境消费的便利，也有它的价格。" }
+];
+
 const eventPool = [
  { id:"crash", title:"📉 突发：全球金融风暴", icon:"📉", emergency:true,
  run: () => {
  salaryRate = +rand(0.60, 0.78).toFixed(2);
  economyStateName = "金融危机";
- players.forEach(p => { p.investValue = Math.floor((p.investValue || 0) * 0.5); });
- return { desc:"华尔街股市崩盘，许多企业裁员降薪，投资组合大幅缩水。", impact:`⚠️ 薪资降至 ${pct(salaryRate)} ｜ 投资市值减半` };
+ players.forEach(p => { p.stock = Math.floor((p.stock || 0) * 0.4); p.gold = Math.floor((p.gold || 0) * 0.95); });
+ return { desc:"华尔街股市崩盘，企业裁员降薪。股票几乎腰斩，黄金反而稳住了。", impact:`⚠️ 薪资降至 ${pct(salaryRate)}｜股票 -60%｜黄金 -5%` };
  } },
- { id:"covid", title:"🦠 突发：新冠疫情封锁", icon:"🦠", emergency:true,
+ { id:"covid", title:"🦠 突发：疫情紧急封锁", icon:"🦠", emergency:true,
  run: () => {
  salaryRate = +rand(0.70, 0.88).toFixed(2);
  globalInflation = +(globalInflation * 1.1).toFixed(2);
  economyStateName = "疫情封锁";
- return { desc:"全球爆发疫情紧急封锁，多行业停摆，物价上涨。", impact:`⚠️ 薪资降至 ${pct(salaryRate)} ｜ 通胀 ${globalInflation}x` };
+ return { desc:"全球爆发疫情封锁，多行业停摆，物价上涨。", impact:`⚠️ 薪资降至 ${pct(salaryRate)}｜通胀 ${globalInflation}x` };
  } },
  { id:"inflation", title:"🔥 物价飞涨 · 通货膨胀", icon:"🔥", emergency:true,
  run: () => {
  globalInflation = +(globalInflation * 1.25).toFixed(2);
  economyStateName = "高通胀";
- return { desc:"能源与粮食价格暴涨，同样的钱能买到的东西变少了。", impact:`⚠️ 所有开销 ×${globalInflation}｜这就是「现金的机会成本」` };
+ players.forEach(p => { p.gold = Math.floor((p.gold || 0) * 1.2); });
+ return { desc:"能源与粮食价格暴涨，同样的钱能买到的东西变少了，黄金成了避风港。", impact:`⚠️ 开销 ×${globalInflation}｜黄金 +20%｜现金购买力下降` };
  } },
  { id:"boom", title:"🚀 科技牛市 · 经济复苏", icon:"🚀", emergency:false,
  run: () => {
  salaryRate = +rand(1.10, 1.30).toFixed(2);
  economyStateName = "经济复苏";
- players.forEach(p => { p.investValue = Math.floor((p.investValue || 0) * 1.3); });
- return { desc:"科技大爆发，就业市场回暖，投资市值上升！", impact:`🎉 薪资率提升至 ${pct(salaryRate)} ｜ 投资市值 +30%` };
+ players.forEach(p => { p.stock = Math.floor((p.stock || 0) * 1.5); p.gold = Math.floor((p.gold || 0) * 1.05); });
+ return { desc:"科技大爆发，就业市场回暖，股市一片红火！", impact:`🎉 薪资率 ${pct(salaryRate)}｜股票 +50%｜黄金 +5%` };
+ } },
+ { id:"housing", title:"🏘️ 房市大涨 · 资产重估", icon:"🏘️", emergency:false,
+ run: () => {
+ economyStateName = "房市火热";
+ globalInflation = +(globalInflation * 1.08).toFixed(2);
+ return { desc:"游资涌入房地产，房价与租金同步上扬——有房的人笑了。", impact:`🏠 租金随通胀上升至 ${globalInflation}x｜没买房的人更难上车` };
+ } },
+ { id:"jobshock", title:"🤖 AI 冲击就业市场", icon:"🤖", emergency:true,
+ run: () => {
+ salaryRate = +rand(0.75, 0.92).toFixed(2);
+ economyStateName = "结构性失业";
+ players.forEach(p => { if ((p.skill || 0) >= 0.1) p.money += 400; });
+ return { desc:"自动化取代了大量岗位，只有持续进修的人守住了收入。", impact:`⚠️ 薪资降至 ${pct(salaryRate)}｜有进修加成者补贴 +$400` };
  } }
 ];
 let triggeredEventCount = 0;
-const maxEvents = 3;
+const maxEvents = 4;
 const usedEventIds = new Set();
 
 const diceUnicode = ["", "⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
@@ -814,11 +1174,39 @@ function peerLibReady() {
 }
 
 // ---------------------- 大厅 ----------------------
+/* 🗺️ 地图选择：本地模式人人可选；联机模式仅房主可选 */
+function renderMapPicker() {
+ const grid = document.getElementById('map-grid');
+ if (!grid) return;
+ const canPick = !isNet() || isHost();
+ document.getElementById('map-lock-tip').style.display = canPick ? 'none' : '';
+ grid.innerHTML = MAPS.map(m => {
+ const props = m.tiles.filter(t => t.t === 'prop').length;
+ return `<div class="map-card ${m.id === currentMapId ? 'selected' : ''} ${canPick ? '' : 'locked'}"
+ ${canPick ? `onclick="pickMap('${m.id}')"` : ''}>
+ <span class="m-icon">${m.icon}</span>
+ <div>
+ <div class="m-name">${m.name}<span class="m-tag">${m.tag}</span></div>
+ <div class="m-desc">${m.desc}</div>
+ <div class="m-stat">🏠 ${props} 处房产 ｜ 共 ${m.tiles.length} 格</div>
+ </div>
+ </div>`;
+ }).join('');
+}
+function pickMap(id) {
+ if (isNet() && !isHost()) return;
+ currentMapId = mapById(id).id;
+ BOARD = mapById(id).tiles;
+ renderMapPicker();
+ if (isHost()) broadcast({ t:'map', id: currentMapId });
+}
+
 function startLocalMode() {
  NET.mode = 'local';
  document.getElementById('player-count-group').style.display = '';
  document.getElementById('setup-title').innerText = '玩家初始化';
  generateNameInputs();
+ renderMapPicker();
  showScreen('setup-screen');
 }
 function backToLobby() { teardownNet(); showScreen('lobby-screen'); }
@@ -964,11 +1352,12 @@ function onHostReceive(conn, msg) {
  if (document.getElementById('setup-screen').classList.contains('active')) renderMultiSetup();
  break;
  case 'intent':
- if (idx !== currentPlayerIndex) return;    // 只接受当前回合玩家的操作
+ if (idx !== phaseActor) return;    // 只接受「本阶段该操作的人」的指令
  NET.remoteAct = true;
  try {
  if (msg.action === 'roll') playTurn();
  else if (msg.action === 'choice') chooseOption(msg.key);
+ else if (msg.action === 'price') submitPrice(msg.value);
  } finally { NET.remoteAct = false; }
  break;
  case 'chat':
@@ -1011,8 +1400,14 @@ function onClientReceive(msg) {
  case 'tosetup': enterMultiSetup(); break;
  case 'backtoroom': showScreen('create-room-screen'); renderRoom(); roomStatus('有玩家离开，回到房间继续等待…'); break;
  case 'gamestart':
+ if (msg.mapId) { currentMapId = msg.mapId; BOARD = mapById(msg.mapId).tiles; }
  players = msg.players; propOwner = msg.propOwner; propLevel = msg.propLevel;
+ if (msg.lottery) lottery = msg.lottery;
  NET.started = true; enterGame();
+ break;
+ case 'map':
+ currentMapId = msg.id; BOARD = mapById(msg.id).tiles;
+ renderMapPicker();
  break;
  case 'state': applyRemoteState(msg.s); break;
  case 'log': appendLog(msg.msg); break;
@@ -1020,7 +1415,14 @@ function onClientReceive(msg) {
  case 'roll': startRollVisual(msg.dice, msg.pIdx, msg.from); break;
  case 'chat': addChatLine(msg.name, msg.text); break;
  case 'vote': showVoteModal(msg.initiator, msg.votes); break;
- case 'voteend': closeVoteModal(msg.ok ? '✅ 全体同意，正在结算…' : '❌ 有玩家希望继续游戏，提案取消'); break;
+ case 'voteend':
+ if (msg.cooldown) { emergencyCooldownUntil = Date.now() + msg.cooldown; renderEmergencyBtn(); }
+ closeVoteModal(msg.ok ? '✅ 全体同意，正在结算…' : '❌ 有玩家希望继续游戏，提案取消（1 分钟后才能再次发起）');
+ break;
+ case 'votebusy':
+ emergencyCooldownUntil = Date.now() + msg.left * 1000; renderEmergencyBtn();
+ appendLog(`⏳ 紧急结算冷却中，还要等 ${msg.left} 秒`);
+ break;
  case 'end': showEndScreen(msg.reason); break;
  }
 }
@@ -1069,6 +1471,7 @@ function enterMultiSetup() {
  document.getElementById('player-count-group').style.display = 'none';
  document.getElementById('setup-title').innerText = '选择你的名字与角色';
  showScreen('setup-screen');
+ renderMapPicker();
  renderMultiSetup();
 }
 
@@ -1131,9 +1534,9 @@ function makePlayer(name, avatarIdx, seat, job) {
  return {
  name: name || ('玩家_' + (seat + 1)), animal: cfg.name, icon: cfg.icon,
  color: SEAT_COLORS[seat % SEAT_COLORS.length], seat: seat,
- job: job, money: 4000, savings: 0, debt: 0, investValue: 0, investCost: 0,
+ job: job, money: 4000, savings: 0, debt: 0, gold: 0, stock: 0,
  happiness: 5, position: 0, skill: 0, skipTurns: 0,
- propCount: 0, rentEarned: 0, rentPaid: 0, passedChances: 0
+ rentEarned: 0, rentPaid: 0, passedChances: 0
  };
 }
 
@@ -1143,8 +1546,9 @@ function hostStartGameMulti() {
  players = NET.roster.map((r, i) => makePlayer(r.name, r.avatarIdx, i, shuffledJobs[i]));
  propOwner = new Array(BOARD.length).fill(-1);
  propLevel = new Array(BOARD.length).fill(0);
+ lottery = { won:false, winner:'', pot:2500 };
  NET.started = true;
- broadcast({ t:'gamestart', players: players, propOwner: propOwner, propLevel: propLevel });
+ broadcast({ t:'gamestart', players, propOwner, propLevel, mapId: currentMapId, lottery });
  enterGame();
  checkAndTriggerMacroEvent();
 }
@@ -1190,6 +1594,7 @@ function startGame() {
  }
  propOwner = new Array(BOARD.length).fill(-1);
  propLevel = new Array(BOARD.length).fill(0);
+ lottery = { won:false, winner:'', pot:2500 };
  enterGame();
  checkAndTriggerMacroEvent();
 }
@@ -1269,34 +1674,41 @@ function renderBoard() {
  const bc = document.getElementById('board-center');
  if (bc) {
  const cur = players[currentPlayerIndex];
- bc.innerHTML = `<h3>机会博弈</h3>
+ const m = mapById(currentMapId);
+ bc.innerHTML = `<h3>${m.icon} ${m.name}</h3>
  <div class="bc-turn">第 ${currentRound} / ${totalRounds} 周期</div>
  ${cur ? `<div class="bc-turn" style="color:${cur.color}">${cur.icon} 轮到 ${esc(cur.name)}</div>` : ''}
+ ${lottery.won ? `<div class="bc-tip">🎟️ 彩票已由 ${esc(lottery.winner)} 中出</div>`
+ : `<div class="bc-tip">🎟️ 彩票 ${money(lottery.pot)} 尚未开出</div>`}
  <div class="bc-tip">每一次选择，都有它的机会成本</div>`;
  }
 }
 
 // =====================================================================
-// 📊 UI
+// 📊 数值与 UI
 // =====================================================================
 function baseIncomeFor(p) { return Math.floor((p.job.salary / 4) * salaryRate * (1 + (p.skill || 0))); }
 function expenseBase() { return Math.floor(500 * globalInflation); }
 function rentOf(i) { return Math.floor(BOARD[i].rent * (1 + propLevel[i]) * globalInflation); }
 function upgradeCost(i) { return Math.floor(BOARD[i].price * 0.6); }
+function propMarket(i) { return Math.floor(BOARD[i].price * (1 + propLevel[i] * 0.6)); }
 function propertyValue(p) {
  let v = 0;
- for (let i = 0; i < BOARD.length; i++) if (propOwner[i] === p.seat) v += Math.floor(BOARD[i].price * (1 + propLevel[i] * 0.6));
+ for (let i = 0; i < BOARD.length; i++) if (propOwner[i] === p.seat) v += propMarket(i);
  return v;
 }
-function netWorth(p) { return p.money + Math.floor(p.savings * 1.08) + p.investValue + propertyValue(p) - p.debt; }
+function investValueOf(p) { return (p.gold || 0) + (p.stock || 0); }
+function netWorth(p) { return p.money + Math.floor(p.savings * 1.08) + investValueOf(p) + propertyValue(p) - p.debt; }
 function overallScore(p) { return netWorth(p) + p.happiness * 300; }
+function countProps(seat) { let n = 0; for (let i = 0; i < BOARD.length; i++) if (propOwner[i] === seat) n++; return n; }
 
 function updateUI() {
  document.getElementById('round-title').innerText = `第 ${currentRound} / ${totalRounds} 探险周期`;
  document.getElementById('economy-status').innerHTML = `
  <span>🌍 状态: <b class="${globalInflation > 1 || salaryRate < 1 ? 'eco-bad' : 'eco-good'}">${economyStateName}</b></span>
  <span>💹 通胀: ${globalInflation}x</span>
- <span>💼 薪资: ${Math.round(salaryRate * 100)}%</span>`;
+ <span>💼 薪资: ${Math.round(salaryRate * 100)}%</span>
+ <span>🎟️ 彩票: ${lottery.won ? esc(lottery.winner) + ' 已中' : money(lottery.pot) + ' 待开'}</span>`;
 
  const dashboard = document.getElementById('dashboard');
  dashboard.innerHTML = players.map((p, idx) => {
@@ -1305,13 +1717,15 @@ function updateUI() {
  <h4 style="color:${p.color}">${p.icon} ${esc(p.name)}${isNet() && idx === NET.myIndex ? '<span class="you-tag">你</span>' : ''}${off ? '<span class="offline-tag">掉线</span>' : ''}</h4>
  <span class="job-badge">${p.job.name}</span>
  <p>💵 现金: <b style="color:var(--nature-gold);">${money(p.money)}</b></p>
- <p>🏠 房产: <b>${p.propCount}</b> 处（市值 <b style="color:var(--nature-green)">${money(propertyValue(p))}</b>）</p>
- <p>📈 投资: ${money(p.investValue)} ｜ 🏦 存款: ${money(p.savings)}</p>
- <p>💳 负债: <span style="color:${p.debt ? 'var(--nature-red)' : '#64748b'}">${money(p.debt)}</span> ｜ ❤️ 幸福感: <b>${p.happiness}</b>${p.skill ? ` ｜ 🎓 +${Math.round(p.skill * 100)}%` : ''}</p>
- <p class="networth-row">💎 身家合计: <b>${money(netWorth(p))}</b><span class="nw-hint">现金+房产+投资+存款−负债</span></p>
+ <p>🏠 房产: <b>${countProps(idx)}</b> 处（市值 <b style="color:var(--nature-green)">${money(propertyValue(p))}</b>）</p>
+ <p>🥇 黄金: ${money(p.gold || 0)} ｜ 📊 股票: ${money(p.stock || 0)}</p>
+ <p>🏦 存款: ${money(p.savings)} ｜ 💳 负债: <span style="color:${p.debt ? 'var(--nature-red)' : '#64748b'}">${money(p.debt)}</span></p>
+ <p>❤️ 幸福感: <b>${p.happiness}</b>${p.skill ? ` ｜ 🎓 +${Math.round(p.skill * 100)}%` : ''}</p>
+ <p class="networth-row">💎 身家合计: <b>${money(netWorth(p))}</b><span class="nw-hint">现金+房产+黄金股票+存款−负债</span></p>
  </div>`;
  }).join('');
  renderBoard();
+ renderEmergencyBtn();
 }
 
 function appendLog(msg) {
@@ -1362,15 +1776,17 @@ function startCountdown(sec, onExpire) {
 // =====================================================================
 // 🔁 回合流程（房主权威）
 // =====================================================================
-let currentPhase = 'roll';       // roll | choice | result
+let currentPhase = 'roll';       // roll | choice | price | result
 let phaseData = null;
+let phaseActor = 0;              // 本阶段该谁操作（收购谈判时可能不是当前回合玩家）
 let phaseSeconds = 0;
 let isAnimating = false, pendingState = null;
+let pendingPay = null;           // 房主端：待完成的付款（可能需要变卖资产）
 
 function snapshotState() {
  return {
  players, currentPlayerIndex, currentRound, globalInflation, salaryRate, economyStateName,
- currentPhase, phaseData, phaseSeconds, propOwner, propLevel
+ currentPhase, phaseData, phaseActor, phaseSeconds, propOwner, propLevel, lottery, currentMapId
  };
 }
 function broadcastState() { if (isHost()) broadcast({ t:'state', s: snapshotState() }); }
@@ -1379,34 +1795,37 @@ function applyRemoteState(s) {
  if (isAnimating) { pendingState = s; return; }
  players = s.players; currentPlayerIndex = s.currentPlayerIndex; currentRound = s.currentRound;
  globalInflation = s.globalInflation; salaryRate = s.salaryRate; economyStateName = s.economyStateName;
- currentPhase = s.currentPhase; phaseData = s.phaseData; phaseSeconds = s.phaseSeconds;
- propOwner = s.propOwner; propLevel = s.propLevel;
+ currentPhase = s.currentPhase; phaseData = s.phaseData; phaseActor = s.phaseActor; phaseSeconds = s.phaseSeconds;
+ propOwner = s.propOwner; propLevel = s.propLevel; lottery = s.lottery;
+ if (s.currentMapId && s.currentMapId !== currentMapId) { currentMapId = s.currentMapId; BOARD = mapById(currentMapId).tiles; buildBoard(); }
  updateUI();
  renderActionZone();
  if (phaseSeconds > 0) startCountdown(phaseSeconds, null); else stopCountdown();
 }
 
-function isMyTurn() {
+/* 我是不是这一阶段该操作的人 */
+function isActor() {
  if (!isNet()) return true;
- if (NET.myIndex === currentPlayerIndex) return true;
- const cur = NET.roster[currentPlayerIndex];
- return isHost() && cur && cur.online === false;   // 掉线玩家由房主代打
+ if (NET.myIndex === phaseActor) return true;
+ const a = NET.roster[phaseActor];
+ return isHost() && a && a.online === false;   // 掉线玩家由房主代打
 }
-function canAct() { return NET.remoteAct || isMyTurn(); }
+function isMyTurn() { return isActor(); }
+function canAct() { return NET.remoteAct || isActor(); }
 
 function startPlayerTurnInit() {
  let guard = 0;
  while (players[currentPlayerIndex] && players[currentPlayerIndex].skipTurns > 0 && guard++ <= players.length) {
  const sp = players[currentPlayerIndex];
  sp.skipTurns--;
- log(`🚔 ${sp.name} 在拘留所休整，本回合暂停`);
+ log(`🚔 ${sp.name} 暂停一回合`);
  currentPlayerIndex++;
  if (currentPlayerIndex >= players.length) {
  currentPlayerIndex = 0; currentRound++;
  if (currentRound > totalRounds) { hostEndGame('12 个探险周期已经走完'); return; }
  }
  }
- currentPhase = 'roll'; phaseData = null; phaseSeconds = ROLL_SECONDS;
+ currentPhase = 'roll'; phaseData = null; phaseActor = currentPlayerIndex; phaseSeconds = ROLL_SECONDS;
  document.getElementById('map-info').innerText = `轮到 ${players[currentPlayerIndex].name}，请抛掷幸运橡果`;
  renderActionZone(); updateUI(); broadcastState();
  startCountdown(ROLL_SECONDS, () => { if (currentPhase === 'roll' && !isAnimating) playTurn(); });
@@ -1472,28 +1891,34 @@ function hostOnArrive(pIdx, from, steps) {
 }
 
 // ---------------------- 阶段设置 ----------------------
-function setChoice(kind, title, sub, options, meta) {
+function setChoice(kind, title, sub, options, meta, actor) {
  currentPhase = 'choice';
+ phaseActor = (actor === undefined) ? currentPlayerIndex : actor;
  phaseData = { kind, title, sub, options, meta: meta || {} };
  phaseSeconds = CHOICE_SECONDS;
  renderActionZone(); updateUI(); broadcastState();
  if (!isClient()) {
- const def = (options.find(o => o.def) || options[options.length - 1]).k;
+ const def = (options.find(o => o.def && !o.disabled) || options.filter(o => !o.disabled).slice(-1)[0] || options[0]).k;
  startCountdown(CHOICE_SECONDS, () => {
  if (currentPhase !== 'choice') return;
- log(`⏰ ${players[currentPlayerIndex].name} 超时未选择，自动执行默认选项`);
+ log(`⏰ ${players[phaseActor].name} 超时未选择，自动执行默认选项`);
  applyChoice(def);
  });
  }
 }
 
+let resultToken = 0;   // 防止上一轮的自动换人定时器误触发这一轮
 function setResult(html) {
  currentPhase = 'result';
  phaseData = { html: html };
+ phaseActor = currentPlayerIndex;
  phaseSeconds = 0;
  stopCountdown();
  renderActionZone(); updateUI(); broadcastState();
- if (!isClient()) setTimeout(() => { if (currentPhase === 'result') hostNextPlayer(); }, RESULT_MS);
+ if (!isClient()) {
+ const token = ++resultToken;
+ setTimeout(() => { if (currentPhase === 'result' && token === resultToken) hostNextPlayer(); }, RESULT_MS);
+ }
 }
 
 function hostNextPlayer() {
@@ -1511,7 +1936,8 @@ function renderActionZone() {
  const zone = document.getElementById('action-zone');
  const p = players[currentPlayerIndex];
  if (!zone || !p) return;
- const mine = isMyTurn();
+ const mine = isActor();
+ const actor = players[phaseActor] || p;
 
  if (currentPhase === 'roll') {
  const d1 = document.getElementById('dice-1'), d2 = document.getElementById('dice-2');
@@ -1527,20 +1953,41 @@ function renderActionZone() {
  zone.innerHTML = `
  <p class="action-title">${phaseData.title}</p>
  <p class="action-sub">${phaseData.sub}</p>
- ${mine ? '' : `<p class="turn-wait">⏳ 【${esc(p.name)}】正在做选择，你可以先思考一下机会成本…</p>`}
+ ${mine ? '' : `<p class="turn-wait">⏳ 【${esc(actor.name)}】正在做选择，你可以先想想机会成本…</p>`}
  <div class="decision-box">
  ${phaseData.options.map(o => `
  <div class="opt-card ${(!mine || o.disabled) ? 'disabled' : ''}" ${(mine && !o.disabled) ? `onclick="chooseOption('${o.k}')"` : ''}>
  <div class="opt-head"><span class="opt-icon">${o.icon}</span>${o.label}</div>
- <p class="opt-detail">${o.detail}</p>
- <span class="opt-cost">💭 机会成本：${o.cost}</span>
+ <p class="opt-detail">${o.detail || ''}</p>
+ ${o.cost ? `<span class="opt-cost">💭 机会成本：${o.cost}</span>` : ''}
  </div>`).join('')}
  </div>`;
+ } else if (currentPhase === 'price' && phaseData) {
+ const buyer = players[phaseData.buyer], tile = BOARD[phaseData.i];
+ zone.innerHTML = `
+ <p class="action-title">🤝 ${esc(buyer.name)} 想收购你的【${tile.name}】</p>
+ <p class="action-sub">你是这块地的主人，<b>价格由你开</b>。参考市价 ${money(phaseData.suggest)}，目前租金 ${money(rentOf(phaseData.i))}。</p>
+ ${mine ? `
+ <div class="price-row">
+ <span class="price-cur">$</span>
+ <input type="number" id="offer-price" min="1" step="50" value="${phaseData.suggest}">
+ </div>
+ <div class="price-quick">
+ ${[1, 1.5, 2, 3].map(x => `<button class="btn btn-ghost" onclick="setPriceInput(${Math.floor(phaseData.suggest * x)})">${x}× 市价</button>`).join('')}
+ </div>
+ <div class="price-btns">
+ <button class="btn" style="background:linear-gradient(135deg,#15803d,#4ade80);color:#052e16;" onclick="submitPrice()">💰 就这个价，卖！</button>
+ <button class="btn btn-accent" onclick="submitPrice(-1)">🚫 不卖</button>
+ </div>
+ <span class="opt-cost">💭 机会成本：卖掉就没有租金收入了；开太高对方不会买，开太低你就亏了。</span>`
+ : `<p class="turn-wait">⏳ 等待房东【<b>${esc(players[phaseData.owner].name)}</b>】开价…</p>`}`;
  } else if (currentPhase === 'result' && phaseData) {
  zone.innerHTML = `<div class="result-box">${phaseData.html}</div>
  <p class="action-sub" style="margin-top:8px;text-align:center;">下一位玩家即将行动…</p>`;
  }
 }
+
+function setPriceInput(v) { const el = document.getElementById('offer-price'); if (el) el.value = v; }
 
 function chooseOption(key) {
  if (currentPhase !== 'choice') return;
@@ -1549,19 +1996,106 @@ function chooseOption(key) {
  applyChoice(key);
 }
 
+function submitPrice(forced) {
+ if (currentPhase !== 'price') return;
+ if (!canAct()) return;
+ let v = forced;
+ if (v === undefined) {
+ const el = document.getElementById('offer-price');
+ v = el ? Math.max(1, Math.floor(Number(el.value) || 0)) : -1;
+ }
+ if (isClient()) { sendToHost({ t:'intent', action:'price', value: v }); return; }
+ hostPriceReply(v);
+}
+
 // =====================================================================
-// 🎯 每一格的专属选项（都带机会成本）
+// 💰 付款：现金不够时可以变卖房产 / 黄金 / 股票 / 存款
+// =====================================================================
+function sellOptions(p) {
+ const opts = [];
+ for (let i = 0; i < BOARD.length; i++) if (propOwner[i] === p.seat) {
+ const v = Math.floor(propMarket(i) * 0.7);
+ opts.push({ k:'prop-' + i, icon: BOARD[i].icon, label:`急售 ${BOARD[i].name} → +${money(v)}`,
+ detail:`市值 ${money(propMarket(i))}，急售只拿得到 7 折。`,
+ cost:`从此少了每次 ${money(rentOf(i))} 的租金收入。` });
+ }
+ if ((p.gold || 0) > 0) {
+ const v = Math.floor(p.gold * 0.95);
+ opts.push({ k:'gold', icon:'🥇', label:`卖出全部黄金 → +${money(v)}`,
+ detail:`持有 ${money(p.gold)} 的黄金，变现手续费 5%。`,
+ cost:'失去抗通胀的避风港，之后金价上涨也与你无关。' });
+ }
+ if ((p.stock || 0) > 0) {
+ const v = Math.floor(p.stock * 0.9);
+ opts.push({ k:'stock', icon:'📊', label:`卖出全部股票 → +${money(v)}`,
+ detail:`持有 ${money(p.stock)} 的股票，急售折价 10%。`,
+ cost:'在低点卖出通常最亏；之后的反弹你就吃不到了。' });
+ }
+ if (p.savings > 0) {
+ opts.push({ k:'savings', icon:'🏦', label:`解约定存 → +${money(p.savings)}`,
+ detail:`拿回本金 ${money(p.savings)}。`,
+ cost:'提前解约，<b>失去 8% 的利息</b>。' });
+ }
+ return opts;
+}
+
+function payThen(p, amount, reason, done) {
+ amount = Math.max(0, Math.round(amount));
+ if (amount === 0) { done(''); return; }
+ if (p.money >= amount) { p.money -= amount; done(''); return; }
+ pendingPay = { pIdx: p.seat, amount, reason, done, raised: 0 };
+ askSellPhase();
+}
+
+function askSellPhase() {
+ const p = players[pendingPay.pIdx];
+ const short = pendingPay.amount - p.money;
+ const opts = sellOptions(p);
+ opts.push({ k:'loan', icon:'🩸', label:`向地下钱庄借 ${money(short)}（负债 +${money(Math.ceil(short * 1.3))}）`,
+ detail:'什么都不卖，直接背债过关。', def:true,
+ cost:'利率 30%，结算时会从身家里狠狠扣掉。' });
+ setChoice('sell',
+ `💰 现金不足！需要支付 ${money(pendingPay.amount)}`,
+ `${esc(p.name)} 手上只有 <b>${money(p.money)}</b>，还差 <b style="color:var(--nature-red)">${money(short)}</b>（${pendingPay.reason}）。<br>把资产变现，或者背债——你得选一个。`,
+ opts, {}, pendingPay.pIdx);
+}
+
+function doSell(p, key) {
+ if (key === 'gold') { const v = Math.floor(p.gold * 0.95); p.money += v; p.gold = 0; return `卖出全部黄金，换回 ${money(v)}`; }
+ if (key === 'stock') { const v = Math.floor(p.stock * 0.9); p.money += v; p.stock = 0; return `卖出全部股票，换回 ${money(v)}`; }
+ if (key === 'savings') { const v = p.savings; p.money += v; p.savings = 0; return `解约定存，拿回 ${money(v)}（利息没了）`; }
+ if (key.startsWith('prop-')) {
+ const i = parseInt(key.slice(5));
+ if (propOwner[i] !== p.seat) return '';
+ const v = Math.floor(propMarket(i) * 0.7);
+ p.money += v; propOwner[i] = -1; propLevel[i] = 0;
+ log(`🏚️ ${p.name} 急售了 ${BOARD[i].name}`);
+ return `急售 ${BOARD[i].name}，换回 ${money(v)}`;
+ }
+ return '';
+}
+
+function finishPay(extraNote) {
+ const pp = pendingPay; pendingPay = null;
+ const p = players[pp.pIdx];
+ let note = extraNote || '';
+ if (p.money >= pp.amount) { p.money -= pp.amount; }
+ else {
+ const short = pp.amount - p.money;
+ const owe = Math.ceil(short * 1.3);
+ p.money = 0; p.debt += owe;
+ note += `<br>🩸 现金仍然不足，向地下钱庄借了 ${money(short)}，负债 +${money(owe)}`;
+ }
+ pp.done(note);
+}
+
+// =====================================================================
+// 🎯 每一格的专属剧情（内容会随机变化，不再一成不变）
 // =====================================================================
 function resolveTile(p) {
  const i = p.position, tile = BOARD[i];
  switch (tile.t) {
- case 'go': case 'income': {
- const inc = baseIncomeFor(p);
- p.money += inc;
- log(`💰 ${p.name} 领到薪资 ${money(inc)}`);
- setResult(`💰 <b>${esc(p.name)}</b> 领到本期薪资 <b style="color:var(--nature-gold)">${money(inc)}</b><br>
- <span style="font-size:11px;color:#94a3b8">薪资率 ${pct(salaryRate)}${p.skill ? `，进修加成 +${Math.round(p.skill * 100)}%` : ''}</span>`);
- break; }
+ case 'go': case 'income': return doIncome(p);
  case 'expense': return askExpense(p);
  case 'invest': return askInvest(p);
  case 'bank': return askBank(p);
@@ -1569,246 +2103,426 @@ function resolveTile(p) {
  case 'job': return askJob(p);
  case 'chance': return askChance(p);
  case 'prop': return handleProperty(p, i);
- case 'tax': {
- const tax = Math.floor(Math.max(200, p.money * 0.1));
- p.money -= tax;
- log(`🧾 ${p.name} 缴纳所得税 ${money(-tax)}`);
- setResult(`🧾 <b>${esc(p.name)}</b> 缴纳所得税 <b style="color:var(--nature-red)">${money(-tax)}</b>（现金的 10%）<br>
- <span style="font-size:11px;color:#94a3b8">税收是公共服务的价格，也是持有现金的成本之一。</span>`);
- break; }
- case 'risk': {
- const loss = Math.floor(rand(200, 500) * globalInflation);
- p.money -= loss; p.happiness = Math.max(0, p.happiness - 1);
- log(`⚡ ${p.name} 遇到意外 ${money(-loss)}，心情 -1❤️`);
- setResult(`⚡ <b>${esc(p.name)}</b> 遇上突发意外，损失 <b style="color:var(--nature-red)">${money(-loss)}</b>，心情 -1❤️<br>
- <span style="font-size:11px;color:#94a3b8">没有应急储蓄时，风险的代价会更痛。</span>`);
- break; }
- case 'fate': {
- const c = fateCards[randInt(0, fateCards.length - 1)];
- p.money += c.money; p.happiness = Math.max(0, p.happiness + c.happy);
- log(`🔮 命运卡：${c.text}`);
- setResult(`🔮 <b>命运卡</b><br>${c.text}`);
- break; }
- case 'rest': {
- p.happiness += 2;
- log(`🍃 ${p.name} 在平安驿站休整，心情 +2❤️`);
- setResult(`🍃 <b>${esc(p.name)}</b> 在平安驿站好好休息，幸福感 <b style="color:var(--nature-green)">+2❤️</b><br>
- <span style="font-size:11px;color:#94a3b8">休息不产生现金，但幸福感在最终计分里每点值 $300。</span>`);
- break; }
+ case 'tax': return doTax(p);
+ case 'risk': return doRisk(p);
+ case 'fate': return doFate(p);
+ case 'rest': return doRest(p);
  case 'jail': {
  p.skipTurns = 1;
- log(`🚔 ${p.name} 被拘留，下一回合暂停一次`);
- setResult(`🚔 <b>${esc(p.name)}</b> 进了拘留所，<b style="color:var(--nature-red)">下一回合暂停</b><br>
+ log(`🚔 ${p.name} 被拘留，下一回合暂停`);
+ return setResult(`🚔 <b>${esc(p.name)}</b> 进了拘留所，<b style="color:var(--nature-red)">下一回合暂停</b><br>
  <span style="font-size:11px;color:#94a3b8">时间也是稀缺资源——少走一回合，就少一次赚钱机会。</span>`);
- break; }
- default: setResult('这一格风平浪静，什么也没发生。');
+ }
+ default: return setResult('这一格风平浪静，什么也没发生。');
  }
 }
 
+const INCOME_FLAVOR = [
+ "薪水入账，这个月总算撑过去了。",
+ "老板难得准时发薪，还附了一句「辛苦了」。",
+ "接了个小案子，客户爽快结清。",
+ "这个月业绩不错，薪水多了一点点。",
+ "银行通知：一笔款项已存入你的账户。"
+];
+function doIncome(p) {
+ const inc = baseIncomeFor(p);
+ p.money += inc;
+ log(`💰 ${p.name} 领到薪资 ${money(inc)}`);
+ setResult(`💰 ${pick(INCOME_FLAVOR)}<br><b>${esc(p.name)}</b> 领到 <b style="color:var(--nature-gold)">${money(inc)}</b>
+ <br><span style="font-size:11px;color:#94a3b8">薪资率 ${pct(salaryRate)}${p.skill ? `，进修加成 +${Math.round(p.skill * 100)}%` : ''}</span>`);
+}
+
 function askExpense(p) {
- const cost = expenseBase();
- setChoice('expense', '💸 生活开销来了',
- `本期生活开销 <b>${money(cost)}</b>（通胀 ${globalInflation}x）。你要怎么应对？`,
- [
- { k:'pay', icon:'💳', label:`直接支付 ${money(cost)}`,
- detail:'干脆付清，保留完整的休息时间与心情。',
- cost:`少了 <b>${money(cost)}</b> 现金，这笔钱本来可以拿去投资或买房。` },
- { k:'hustle', icon:'💪', label:`打工抵扣（只付 ${money(Math.floor(cost / 2))}）`,
- detail:`利用休息时间兼职，抵掉一半开销，但心情 -1❤️。`,
- cost:'省下的一半钱，是用你的<b>休息时间与健康</b>换来的。', def:false },
- { k:'credit', icon:'💳', label:'刷卡延后支付',
- detail:`这期不付现金，但负债增加 ${money(Math.floor(cost * 1.2))}（含利息）。`,
- cost:'现在轻松，未来要还更多——这就是<b>利息</b>的代价。', def:true }
- ], { cost });
+ const sc = pick(EXPENSE_SCENES);
+ const base = Math.floor(expenseBase() * sc.mult);
+ const opts = sc.opts.map(o => {
+ const amt = o.free ? 0 : Math.floor(base * (o.mult || 1) * (o.half ? 0.5 : 1));
+ return Object.assign({}, o, {
+ label: o.label + (amt ? `（${money(amt)}）` : '（$0）'),
+ amount: amt
+ });
+ });
+ setChoice('expense', `${sc.icon} ${sc.title}`,
+ `${sc.sub}<br>这次的账单是 <b>${money(base)}</b>（通胀 ${globalInflation}x）。`,
+ opts, { base });
 }
 
 function askInvest(p) {
- setChoice('invest', '📈 投资机会',
- '手上的现金可以变成资产，也可能缩水。三条路，各有代价：',
- [
- { k:'gold', icon:'🥇', label:'买入黄金 $800',
- detail:'保值型资产：换来价值约 $760~$1040 的黄金，波动小。',
- cost:'$800 现金被锁进黄金，遇到急用钱时不够灵活。',
- disabled: p.money < 800 },
- { k:'stock', icon:'📊', label:'买入股票 $600',
- detail:'高风险高回报：换来价值 $300~$1150 的股票，波动大。',
- cost:'可能血本无归；这 $600 本可以稳稳买黄金或存银行。',
- disabled: p.money < 600 },
- { k:'none', icon:'🛡️', label:'不投资，留着现金',
- detail:'保持全部流动性，随时能买房或应急。',
- cost:`错过潜在收益，且通胀 ${globalInflation}x 会慢慢吃掉现金的购买力。`, def:true }
- ]);
+ const sc = pick(INVEST_SCENES);
+ const opts = sc.opts.map(o => Object.assign({}, o, { disabled: o.cost0 ? p.money < o.cost0 && investValueOf(p) === 0 && p.savings === 0 : false }));
+ setChoice('invest', `${sc.icon} ${sc.title}`, sc.sub, opts, {});
 }
 
 function askBank(p) {
- setChoice('bank', '🏦 银行时间',
- '存款、借贷，还是什么都不做？',
- [
- { k:'save', icon:'🏦', label:'定存 $1000（结算时 ×1.08）',
- detail:'安全、稳定，结算时连本带利 $1080 计入身家。',
- cost:'这 $1000 被锁住，期间不能拿去买房或投资。',
- disabled: p.money < 1000 },
- { k:'loan', icon:'💳', label:'贷款 $1500（结算时还 $1800）',
- detail:'马上多出 $1500 现金，可以抢在别人之前买下房产。',
- cost:'结算时要还 <b>$1800</b>，多付的 $300 就是借钱的价格。' },
- { k:'none', icon:'🚪', label:'什么都不做',
- detail:'维持现状，保持灵活。',
- cost:'放弃了 8% 的稳定利息，也放弃了提前抢房的机会。', def:true }
- ]);
+ const sc = pick(BANK_SCENES);
+ const opts = sc.opts.filter(o => !(o.repay && p.debt <= 0));
+ setChoice('bank', `${sc.icon} ${sc.title}`, sc.sub, opts.length > 1 ? opts : sc.opts, {});
 }
 
 function askWorkLife(p) {
- const famCost = Math.floor(300 * globalInflation);
- setChoice('work', '⚖️ 人生决策：时间要花在哪？',
- '时间是最稀缺的资源，每个选择都在放弃另一个。',
- [
- { k:'ot', icon:'💼', label:`加班熬夜 +${money(1200)}`,
- detail:'多赚一笔加班费，但心情 -2❤️。',
- cost:'牺牲了健康与陪伴家人的时间（2 点幸福 = $600 分数）。' },
- { k:'family', icon:'🏖️', label:`陪伴家人 -${money(famCost)}`,
- detail:'一起出游，心情 +3❤️。',
- cost:`放弃了 ${money(1200)} 的加班收入，还要花掉 ${money(famCost)}。` },
- { k:'study', icon:'🎓', label:`进修充电 -${money(800)}`,
- detail:'花钱上课，之后<b>每次收入永久 +10%</b>。',
- cost:'短期现金减少、也没有休息；投资自己要等以后才回本。', def:true }
- ], { famCost });
+ const sc = pick(WORK_SCENES);
+ setChoice('work', `${sc.icon} ${sc.title}`, sc.sub, sc.opts, {});
 }
 
 function askJob(p) {
- const cand = JOBS[randInt(0, JOBS.length - 1)];
- setChoice('job', '💼 跳槽机会',
- `猎头找上门：<b>${cand.name}</b>（月薪 $${cand.salary}）。你现在是 <b>${p.job.name}</b>（月薪 $${p.job.salary}）。`,
+ const cand = pick(JOBS);
+ setChoice('job', '💼 猎头找上门',
+ `对方开出的职位是 <b>${cand.name}</b>（月薪 $${cand.salary}）。你现在是 <b>${p.job.name}</b>（月薪 $${p.job.salary}）。`,
  [
  { k:'switch', icon:'🚀', label:`跳槽去当 ${cand.name}`,
- detail:`薪水变成 $${cand.salary}${cand.salary > p.job.salary ? '（更高！）' : '（更低…）'}，但要重新适应。`,
- cost:'放弃了现职的年资奖金 $400，新环境也有不确定性。' },
+ detail:`薪水变成 $${cand.salary}${cand.salary > p.job.salary ? '（更高！）' : '（更低…）'}，但要重新适应环境。`,
+ cost:'放弃现职的年资奖金 $400，新环境也有不确定性。' },
+ { k:'nego', icon:'🗣️', label:'拿这个 offer 去谈加薪',
+ detail:'有 60% 机会加薪 10%，40% 机会被老板记恨（心情 -1❤️）。',
+ cost:'谈判失败会伤感情，也可能失去这个 offer。' },
  { k:'stay', icon:'🪑', label:'留任，领年资奖金 +$400',
- detail:'稳稳待着，拿一笔忠诚奖金。',
- cost:`放弃了成为 ${cand.name} 的可能收入变化。`, def:true }
+ detail:'稳稳待着，拿一笔忠诚奖金。', def:true,
+ cost:`放弃了成为 ${cand.name} 的可能收入变化。` }
  ], { cand });
 }
 
 function askChance(p) {
- setChoice('chance', '🎁 机会格：要不要抽一张？',
- '机会卡里有大奖，也有罚单。你可以选择稳稳走过去。',
- [
+ const opts = [
  { k:'draw', icon:'🎲', label:'抽一张机会卡',
- detail:'可能大赚一笔、可能进修加成，也可能被罚钱甚至被拘留。',
- cost:'放弃了稳定的 $200 通行奖励，还要承担亏损风险。' },
- { k:'skip', icon:'🚶', label:'安全通过，领 $200',
- detail:'不冒险，稳稳拿一笔小钱。',
- cost:'错过了大奖的可能性——这就是<b>规避风险的代价</b>。', def:true }
- ]);
+ detail:'20 张卡里有大奖也有罚单，还可能被拘留。',
+ cost:'放弃了稳定的 $200 通行奖励，还要承担亏损风险。' }
+ ];
+ if (!lottery.won) {
+ opts.push({ k:'lotto', icon:'🎟️', label:`买一张彩票 $200（头奖 ${money(lottery.pot)}）`,
+ detail:`全场<b>只会开出一次</b>，中奖率约 35%。开出后就没有了。`,
+ cost:'$200 有 65% 的机率直接打水漂——这就是买彩票的期望成本。' });
+ }
+ opts.push({ k:'skip', icon:'🚶', label:'安全通过，领 $200',
+ detail:'不冒险，稳稳拿一笔小钱。', def:true,
+ cost:'错过了大奖与彩票的可能性——这就是<b>规避风险的代价</b>。' });
+ setChoice('chance', '🎁 机会格：赌一把还是求稳？',
+ lottery.won
+ ? `本期彩票已经被 <b>${esc(lottery.winner)}</b> 抱走了，现在只剩抽卡与安全通过。`
+ : `🎟️ <b>${money(lottery.pot)}</b> 的头奖还没有人中——全场只开一次，要试试吗？`,
+ opts, {});
 }
 
+function doTax(p) {
+ const sc = pick(TAX_EVENTS);
+ let tax = Math.floor(Math.max(sc.min, p.money * sc.rate));
+ if (sc.propRate) tax += Math.floor(propertyValue(p) * sc.propRate);
+ log(`${sc.icon} ${p.name} 缴税 ${money(-tax)}`);
+ payThen(p, tax, sc.text, extra => {
+ setResult(`${sc.icon} <b>${sc.text}</b><br><b>${esc(p.name)}</b> 缴纳 <b style="color:var(--nature-red)">${money(-tax)}</b>${extra}
+ <br><span style="font-size:11px;color:#94a3b8">${sc.note}</span>`);
+ });
+}
+
+function doRisk(p) {
+ const ev = pick(RISK_EVENTS);
+ p.happiness = Math.max(0, p.happiness + (ev.happy || 0));
+ if (ev.assetHit) {
+ const lostG = Math.floor((p.gold || 0) * ev.assetHit), lostS = Math.floor((p.stock || 0) * ev.assetHit);
+ p.gold -= lostG; p.stock -= lostS;
+ log(`${ev.icon} ${p.name}：${ev.text}`);
+ return setResult(`${ev.icon} <b>${ev.text}</b><br>黄金 -${money(lostG)}、股票 -${money(lostS)}，心情 ${ev.happy}❤️
+ <br><span style="font-size:11px;color:#94a3b8">资产会波动，这是持有它们的代价。</span>`);
+ }
+ const loss = Math.floor(rand(ev.lossRange[0], ev.lossRange[1]) * globalInflation);
+ log(`${ev.icon} ${p.name}：${ev.text} ${money(-loss)}`);
+ payThen(p, loss, ev.text, extra => {
+ setResult(`${ev.icon} <b>${ev.text}</b><br>损失 <b style="color:var(--nature-red)">${money(-loss)}</b>，心情 ${ev.happy}❤️${extra}
+ <br><span style="font-size:11px;color:#94a3b8">没有应急储蓄时，风险的代价会更痛。</span>`);
+ });
+}
+
+function doFate(p) {
+ const c = pick(fateCards);
+ const fx = c.fx;
+ if (fx.happy) p.happiness = Math.max(0, p.happiness + fx.happy);
+ if (fx.skill) p.skill = +(p.skill + fx.skill).toFixed(2);
+ log(`🔮 命运卡：${c.text}`);
+ if (fx.money > 0) {
+ p.money += fx.money;
+ return setResult(`🔮 <b>命运卡</b><br>${c.text}<br><b style="color:var(--nature-green)">${money(fx.money)}</b>`);
+ }
+ if (fx.money < 0) {
+ return payThen(p, -fx.money, c.text, extra =>
+ setResult(`🔮 <b>命运卡</b><br>${c.text}<br><b style="color:var(--nature-red)">${money(fx.money)}</b>${extra}`));
+ }
+ setResult(`🔮 <b>命运卡</b><br>${c.text}`);
+}
+
+function doRest(p) {
+ const ev = pick(REST_EVENTS);
+ p.happiness += ev.happy || 0;
+ if (ev.skill) p.skill = +(p.skill + ev.skill).toFixed(2);
+ log(`${ev.icon} ${p.name} 休息：${ev.text}`);
+ const cost = ev.money ? -ev.money : 0;
+ payThen(p, cost, '休息花费', extra => {
+ setResult(`${ev.icon} <b>${ev.text}</b><br>幸福感 <b style="color:var(--nature-green)">+${ev.happy}❤️</b>${ev.money ? `，花了 ${money(-ev.money)}` : ''}${extra}
+ <br><span style="font-size:11px;color:#94a3b8">休息不产生现金，但每点幸福感在结算时值 $300。</span>`);
+ });
+}
+
+// ---------------------- 🏠 房产 ----------------------
 function handleProperty(p, i) {
  const owner = propOwner[i];
  const tile = BOARD[i];
  if (owner === -1) {
  if (p.money < tile.price) {
- setResult(`🏠 <b>${tile.name}</b> 待售价 ${money(tile.price)}，但 <b>${esc(p.name)}</b> 现金不足，只能路过。<br>
+ return setResult(`🏠 <b>${tile.name}</b> 待售价 ${money(tile.price)}，但 <b>${esc(p.name)}</b> 现金不足，只能路过。<br>
  <span style="font-size:11px;color:#94a3b8">现金不足时，机会也会从手边溜走。</span>`);
- return;
  }
- setChoice('buy', `🏠 ${tile.name} 待售`,
+ return setChoice('buy', `🏠 ${tile.name} 待售`,
  `售价 <b>${money(tile.price)}</b>，买下后其他玩家经过要付你租金 <b>${money(rentOf(i))}</b>。`,
  [
  { k:'buy', icon:'🏠', label:`买下 ${tile.name}（${money(tile.price)}）`,
  detail:`成为房东，之后每有人经过就收 ${money(rentOf(i))} 租金，还能升级加租。`,
  cost:`${money(tile.price)} 现金变成不动产，短期内无法用于投资或应急。` },
- { k:'skip', icon:'🚶', label:'不买，留着现金',
+ { k:'skip', icon:'🚶', label:'不买，留着现金', def:true,
  detail:'保持现金弹性，等待更好的机会。',
- cost:'别人可能抢先买下，之后你每次经过都得付租金。', def:true }
+ cost:'别人可能抢先买下，之后你每次经过都得付租金。' }
  ], { i });
- } else if (owner === p.seat) {
- if (propLevel[i] >= 2) {
- setResult(`🏢 <b>${tile.name}</b> 已是你的顶级物业，租金 <b>${money(rentOf(i))}</b>。`);
- return;
  }
+ if (owner === p.seat) {
+ if (propLevel[i] >= 2) return setResult(`🏢 <b>${tile.name}</b> 已是你的顶级物业，租金 <b>${money(rentOf(i))}</b>。`);
  const cost = upgradeCost(i);
  const nextRent = Math.floor(tile.rent * (2 + propLevel[i]) * globalInflation);
- setChoice('upgrade', `🏗️ 升级 ${tile.name}`,
+ return setChoice('upgrade', `🏗️ 升级 ${tile.name}`,
  `目前租金 <b>${money(rentOf(i))}</b>，升级后可涨到 <b>${money(nextRent)}</b>。`,
  [
  { k:'up', icon:'🏗️', label:`花 ${money(cost)} 升级`,
  detail:'租金立刻提高一级，长期收益更好。',
- cost:`${money(cost)} 现金锁进房子；要经过好几次才回本。`,
- disabled: p.money < cost },
- { k:'skip', icon:'🚶', label:'先不升级',
+ cost:`${money(cost)} 现金锁进房子；要经过好几次才回本。`, disabled: p.money < cost },
+ { k:'skip', icon:'🚶', label:'先不升级', def:true,
  detail:'保留现金，等更需要时再说。',
- cost:`每次有人经过，你少收 ${money(nextRent - rentOf(i))} 租金。`, def:true }
+ cost:`每次有人经过，你少收 ${money(nextRent - rentOf(i))} 租金。` }
  ], { i });
- } else {
+ }
+ // 别人的房产：先付租金，再决定要不要开口收购
  const rent = rentOf(i);
  const o = players[owner];
- p.money -= rent; o.money += rent;
- p.rentPaid += rent; o.rentEarned += rent;
+ payThen(p, rent, `${tile.name} 的租金`, extra => {
+ o.money += rent; p.rentPaid += rent; o.rentEarned += rent;
  log(`🏠 ${p.name} 向 ${o.name} 支付 ${tile.name} 租金 ${money(rent)}`);
- setResult(`🏠 <b>${esc(p.name)}</b> 踩到 <b>${o.icon} ${esc(o.name)}</b> 的 <b>${tile.name}</b>，
- 支付租金 <b style="color:var(--nature-red)">${money(rent)}</b><br>
- <span style="font-size:11px;color:#94a3b8">这就是资产的力量：房东睡觉时也在赚钱。</span>`);
- }
+ const rentText = `🏠 <b>${esc(p.name)}</b> 踩到 <b>${o.icon} ${esc(o.name)}</b> 的 <b>${tile.name}</b>，
+ 支付租金 <b style="color:var(--nature-red)">${money(rent)}</b>${extra}`;
+ setChoice('offer', `🤝 要不要买下 ${tile.name}？`,
+ `${rentText}<br>你可以开口向房东收购这块地——但<b>要不要卖、卖多少钱，全由房东决定</b>。`,
+ [
+ { k:'ask', icon:'🤝', label:'向房东提出收购',
+ detail:'房东会开一个价，你再决定接不接受。',
+ cost:'房东可能狮子大开口，也可能直接拒绝——你会浪费这次机会。' },
+ { k:'no', icon:'🚶', label:'算了，继续前进', def:true,
+ detail:'不谈了，往前走。',
+ cost:`这块地会一直向你收租，每次 ${money(rent)}。` }
+ ], { i, rentText });
+ });
 }
 
-// ---------------------- 执行选择 ----------------------
+function setPricePhase(i, buyerIdx, ownerIdx, rentText) {
+ currentPhase = 'price';
+ phaseActor = ownerIdx;
+ phaseData = { i, buyer: buyerIdx, owner: ownerIdx, suggest: propMarket(i), rentText };
+ phaseSeconds = CHOICE_SECONDS;
+ renderActionZone(); updateUI(); broadcastState();
+ if (!isClient()) startCountdown(CHOICE_SECONDS, () => { if (currentPhase === 'price') { log('⏰ 房东超时未回应，视为不卖'); hostPriceReply(-1); } });
+}
+
+function hostPriceReply(value) {
+ if (currentPhase !== 'price' || !phaseData) return;
+ const { i, buyer, owner, rentText } = phaseData;
+ const b = players[buyer], o = players[owner], tile = BOARD[i];
+ if (value < 0) {
+ log(`🚫 ${o.name} 拒绝出售 ${tile.name}`);
+ return setResult(`${rentText}<br>🚫 <b>${esc(o.name)}</b> 拒绝了这笔交易——<b>${tile.name}</b> 不卖。
+ <br><span style="font-size:11px;color:#94a3b8">在自由市场里，没有人有义务把资产卖给你。</span>`);
+ }
+ log(`💬 ${o.name} 为 ${tile.name} 开价 ${money(value)}`);
+ const market = propMarket(i);
+ const ratio = value / market;
+ setChoice('deal', `💬 房东开价 ${money(value)}`,
+ `<b>${esc(o.name)}</b> 愿意以 <b style="color:var(--nature-gold)">${money(value)}</b> 出售 <b>${tile.name}</b>。<br>
+ 市价约 ${money(market)}（<b>${ratio >= 1.5 ? '明显偏贵' : (ratio <= 0.9 ? '低于市价，划算' : '接近行情')}</b>），每次收租 ${money(rentOf(i))}。`,
+ [
+ { k:'yes', icon:'✅', label:`接受，付 ${money(value)}`,
+ detail:`${tile.name} 立刻过户给你，往后由你收租。现金不够可以变卖其他资产。`,
+ cost:`${money(value)} 现金变成不动产；要收 ${Math.ceil(value / Math.max(1, rentOf(i)))} 次租金才回本。` },
+ { k:'no', icon:'🚶', label:'太贵了，不买', def:true,
+ detail:'放弃这次收购。',
+ cost:`这块地继续属于 ${esc(o.name)}，你以后还是要付租金。` }
+ ], { i, value, owner, buyer, rentText }, buyer);
+}
+
+// =====================================================================
+// ✅ 执行选择
+// =====================================================================
 function applyChoice(key) {
  if (currentPhase !== 'choice' || !phaseData) return;
- const p = players[currentPlayerIndex];
  const kind = phaseData.kind, meta = phaseData.meta || {};
- let out = '';
+ const opt = (phaseData.options || []).find(o => o.k === key);
+ const p = players[phaseActor] || players[currentPlayerIndex];
 
- if (kind === 'expense') {
- const cost = meta.cost;
- if (key === 'pay') { p.money -= cost; out = `💳 全额支付 <b style="color:var(--nature-red)">${money(-cost)}</b>。`; }
- else if (key === 'hustle') {
- const half = Math.floor(cost / 2);
- p.money -= half; p.happiness = Math.max(0, p.happiness - 1);
- out = `💪 兼职抵扣，只付 <b>${money(-half)}</b>，但心情 -1❤️。<br><span style="font-size:11px;color:#94a3b8">你用时间换了钱。</span>`;
- } else { const d = Math.floor(cost * 1.2); p.debt += d; out = `💳 延后支付，负债 +<b style="color:var(--nature-red)">${money(d)}</b>（含 20% 利息）。`; }
- } else if (kind === 'invest') {
- if (key === 'gold') { p.money -= 800; const v = randInt(760, 1040); p.investValue += v; p.investCost += 800;
- out = `🥇 买入黄金：花 $800，换到市值 <b style="color:var(--nature-gold)">${money(v)}</b> 的黄金。`; }
- else if (key === 'stock') { p.money -= 600; const v = randInt(300, 1150); p.investValue += v; p.investCost += 600;
- out = `📊 买入股票：花 $600，目前市值 <b style="color:${v >= 600 ? 'var(--nature-green)' : 'var(--nature-red)'}">${money(v)}</b>。`; }
- else { p.passedChances++; out = `🛡️ 保留现金。<br><span style="font-size:11px;color:#94a3b8">安全，但通胀 ${globalInflation}x 正在悄悄侵蚀购买力。</span>`; }
- } else if (kind === 'bank') {
- if (key === 'save') { p.money -= 1000; p.savings += 1000; out = `🏦 定存 $1000，结算时值 <b>$1080</b>。`; }
- else if (key === 'loan') { p.money += 1500; p.debt += 1800; out = `💳 贷款 $1500 到手，结算时须还 <b style="color:var(--nature-red)">$1800</b>。`; }
- else { out = `🚪 这次什么都没做，保持灵活。`; }
- } else if (kind === 'work') {
- if (key === 'ot') { p.money += 1200; p.happiness = Math.max(0, p.happiness - 2); out = `💼 加班到深夜：+$1200，心情 -2❤️。`; }
- else if (key === 'family') { p.money -= meta.famCost; p.happiness += 3; out = `🏖️ 陪伴家人：-${money(meta.famCost)}，心情 <b style="color:var(--nature-green)">+3❤️</b>。`; }
- else { p.money -= 800; p.skill = +(p.skill + 0.1).toFixed(2); out = `🎓 进修充电：-$800，往后每次收入 <b style="color:var(--nature-green)">+10%</b>（现为 +${Math.round(p.skill * 100)}%）。`; }
- } else if (kind === 'job') {
- if (key === 'switch') { const old = p.job; p.job = meta.cand;
- out = `🚀 跳槽成功：${old.name}（$${old.salary}） → <b>${p.job.name}</b>（$${p.job.salary}）。`; }
- else { p.money += 400; out = `🪑 选择留任，领到年资奖金 <b>+$400</b>。`; }
- } else if (kind === 'chance') {
- if (key === 'draw') {
- const c = chanceCards[randInt(0, chanceCards.length - 1)];
- p.money += c.money; p.happiness = Math.max(0, p.happiness + c.happy);
- if (c.skill) p.skill = +(p.skill + c.skill).toFixed(2);
- if (c.jail) p.skipTurns = 1;
- out = `${c.text}<br><b style="color:${c.good ? 'var(--nature-green)' : 'var(--nature-red)'}">${c.money ? money(c.money) : ''}</b>`;
- log(`🎁 机会卡：${c.text}`);
- } else { p.money += 200; out = `🚶 安全通过，领到 <b>+$200</b>。<br><span style="font-size:11px;color:#94a3b8">规避风险的代价，是放弃了大奖的可能。</span>`; }
- } else if (kind === 'buy') {
- const i = meta.i;
- if (key === 'buy' && propOwner[i] === -1 && p.money >= BOARD[i].price) {
- p.money -= BOARD[i].price; propOwner[i] = p.seat; p.propCount++;
- log(`🏠 ${p.name} 买下了 ${BOARD[i].name}`);
- out = `🏠 恭喜！<b>${BOARD[i].name}</b> 归你了，之后每有人经过收租 <b>${money(rentOf(i))}</b>。<br>
- <span style="font-size:11px;color:#94a3b8">现金 ${money(-BOARD[i].price)}，但房产市值 ${money(BOARD[i].price)} 计入你的「身家合计」——钱只是<b>换了一种形式</b>，没有消失。</span>`;
- } else out = `🚶 决定不买 <b>${BOARD[i].name}</b>，留着现金。`;
- } else if (kind === 'upgrade') {
- const i = meta.i, cost = upgradeCost(i);
- if (key === 'up' && p.money >= cost && propLevel[i] < 2) {
- p.money -= cost; propLevel[i]++;
- log(`🏗️ ${p.name} 把 ${BOARD[i].name} 升级到 Lv.${propLevel[i]}`);
- out = `🏗️ <b>${BOARD[i].name}</b> 升级完成，租金提高到 <b style="color:var(--nature-gold)">${money(rentOf(i))}</b>。`;
- } else out = `🚶 这次先不升级 <b>${BOARD[i].name}</b>。`;
+ // ---- 变卖资产 ----
+ if (kind === 'sell') {
+ if (!pendingPay) return;
+ if (key === 'loan') return finishPay('');
+ const note = doSell(p, key);
+ if (p.money >= pendingPay.amount) return finishPay(note ? `<br>💰 ${note}` : '');
+ pendingPay.raised++;
+ const remain = sellOptions(p);
+ if (!remain.length) return finishPay(note ? `<br>💰 ${note}` : '');
+ log(`💰 ${p.name} ${note}`);
+ return askSellPhase();
  }
- setResult(out || '完成。');
+
+ // ---- 收购谈判 ----
+ if (kind === 'offer') {
+ if (key === 'ask') return setPricePhase(meta.i, currentPlayerIndex, propOwner[meta.i], meta.rentText);
+ return setResult(`${meta.rentText}<br>🚶 <b>${esc(p.name)}</b> 决定不谈了，继续前进。`);
+ }
+ if (kind === 'deal') {
+ const { i, value, owner, buyer, rentText } = meta;
+ const b = players[buyer], o = players[owner], tile = BOARD[i];
+ if (key !== 'yes') {
+ return setResult(`${rentText}<br>🚶 <b>${esc(b.name)}</b> 觉得 ${money(value)} 太贵，放弃收购。
+ <br><span style="font-size:11px;color:#94a3b8">价格谈不拢，交易就不会发生——这很正常。</span>`);
+ }
+ return payThen(b, value, `收购 ${tile.name}`, extra => {
+ if (propOwner[i] !== o.seat) return setResult(`${rentText}<br>⚠️ 交易失败：这块地的归属已经改变。`);
+ propOwner[i] = b.seat; o.money += value;
+ log(`🤝 ${b.name} 以 ${money(value)} 从 ${o.name} 手中买下 ${tile.name}`);
+ pushSystemChat(`🤝 ${b.name} 以 ${money(value)} 买下了 ${o.name} 的 ${tile.name}`);
+ setResult(`${rentText}<br>🤝 成交！<b>${tile.name}</b> 以 <b style="color:var(--nature-gold)">${money(value)}</b> 过户给 <b>${esc(b.name)}</b>${extra}
+ <br><span style="font-size:11px;color:#94a3b8">双方都觉得自己赚了，交易才会发生——这就是自愿交换的意义。</span>`);
+ });
+ }
+
+ // ---- 支出格 ----
+ if (kind === 'expense') {
+ if (!opt) return setResult('完成。');
+ if (opt.fxExtra && opt.fxExtra.happy) p.happiness = Math.max(0, p.happiness + opt.fxExtra.happy);
+ if (opt.credit) {
+ const d = Math.floor(meta.base * opt.credit);
+ p.debt += d;
+ return setResult(`🧾 选择延后支付，负债 +<b style="color:var(--nature-red)">${money(d)}</b>（含利息）。
+ <br><span style="font-size:11px;color:#94a3b8">现在轻松，未来要还更多。</span>`);
+ }
+ if (opt.free) return setResult(`🚶 这次决定不花这笔钱${opt.fxExtra && opt.fxExtra.happy ? `，心情 ${opt.fxExtra.happy}❤️` : ''}。
+ <br><span style="font-size:11px;color:#94a3b8">省下的钱，代价往往写在别的地方。</span>`);
+ if (opt.useSavings) {
+ const amt = opt.amount;
+ if (p.savings >= amt) { p.savings -= amt; return setResult(`🏦 从定存里支付 ${money(amt)}，现金不受影响。<br><span style="font-size:11px;color:#94a3b8">代价是失去了这笔钱的利息。</span>`); }
+ }
+ return payThen(p, opt.amount, '生活开销', extra =>
+ setResult(`${opt.icon} 支付 <b style="color:var(--nature-red)">${money(-opt.amount)}</b>${opt.fxExtra && opt.fxExtra.happy ? `，心情 ${opt.fxExtra.happy}❤️` : ''}${extra}`));
+ }
+
+ // ---- 投资格 ----
+ if (kind === 'invest') {
+ if (!opt || key === 'none') { p.passedChances++; return setResult(`🛡️ 保留现金。<br><span style="font-size:11px;color:#94a3b8">安全，但通胀 ${globalInflation}x 正在悄悄侵蚀购买力。</span>`); }
+ return payThen(p, opt.cost0, `投资 ${opt.label}`, extra => {
+ const v = randInt(opt.range[0], opt.range[1]);
+ if (opt.asset === 'gold') p.gold = (p.gold || 0) + v; else p.stock = (p.stock || 0) + v;
+ const gain = v - opt.cost0;
+ return setResult(`${opt.icon} 投入 ${money(opt.cost0)}，换到市值 <b style="color:${gain >= 0 ? 'var(--nature-green)' : 'var(--nature-red)'}">${money(v)}</b> 的${opt.asset === 'gold' ? '黄金' : '股票'}（${gain >= 0 ? '+' : ''}${money(gain)}）${extra}
+ <br><span style="font-size:11px;color:#94a3b8">这笔资产会随经济事件涨跌，急用钱时也可以变卖。</span>`);
+ });
+ }
+
+ // ---- 银行格 ----
+ if (kind === 'bank') {
+ if (!opt || key === 'none') return setResult(`🚪 这次什么都没做，保持灵活。`);
+ if (opt.save) return payThen(p, opt.save, '定存', extra => { p.savings += opt.save; setResult(`🏦 定存 ${money(opt.save)}，结算时值 <b>${money(Math.floor(opt.save * 1.08))}</b>${extra}`); });
+ if (opt.loan) { p.money += opt.loan; p.debt += opt.owe; return setResult(`💳 贷款 ${money(opt.loan)} 到手，结算时须还 <b style="color:var(--nature-red)">${money(opt.owe)}</b>。`); }
+ if (opt.repay) { const amt = Math.min(opt.repay, p.debt); return payThen(p, amt, '还债', extra => { p.debt -= amt; setResult(`✅ 提前偿还 ${money(amt)} 负债，剩余负债 ${money(p.debt)}${extra}`); }); }
+ return setResult('完成。');
+ }
+
+ // ---- 人生决策 ----
+ if (kind === 'work') {
+ if (!opt || !opt.fx) return setResult('完成。');
+ const fx = opt.fx;
+ if (fx.happy) p.happiness = Math.max(0, p.happiness + fx.happy);
+ if (fx.skill) p.skill = +(p.skill + fx.skill).toFixed(2);
+ let bonusTxt = '';
+ if (fx.bonusRange) {
+ const got = randInt(fx.bonusRange[0], fx.bonusRange[1]);
+ p.money += got;
+ bonusTxt = `<br>🎲 结果：拿回 <b style="color:${got >= 1000 ? 'var(--nature-green)' : 'var(--nature-red)'}">${money(got)}</b>`;
+ }
+ const cost = fx.money < 0 ? -fx.money : (fx.moneyRange ? -fx.moneyRange[0] : 0);
+ if (fx.money > 0) p.money += fx.money;
+ if (cost) return payThen(p, cost, opt.label, extra => setResult(`${opt.icon} <b>${opt.label}</b><br>${opt.detail}${bonusTxt}${extra}`));
+ return setResult(`${opt.icon} <b>${opt.label}</b><br>${opt.detail}${bonusTxt}`);
+ }
+
+ // ---- 跳槽格 ----
+ if (kind === 'job') {
+ if (key === 'switch') { const old = p.job; p.job = meta.cand; return setResult(`🚀 跳槽成功：${old.name}（$${old.salary}） → <b>${p.job.name}</b>（$${p.job.salary}）。`); }
+ if (key === 'nego') {
+ if (Math.random() < 0.6) { p.job = { name: p.job.name, salary: Math.floor(p.job.salary * 1.1) }; return setResult(`🗣️ 谈判成功！薪水提高到 <b style="color:var(--nature-green)">$${p.job.salary}</b>。<br><span style="font-size:11px;color:#94a3b8">手上有别的选择，谈判力就变强了。</span>`); }
+ p.happiness = Math.max(0, p.happiness - 1);
+ return setResult(`🗣️ 谈判失败，老板脸色很难看，心情 -1❤️。<br><span style="font-size:11px;color:#94a3b8">谈判有风险，这就是它的代价。</span>`);
+ }
+ p.money += 400;
+ return setResult(`🪑 选择留任，领到年资奖金 <b>+$400</b>。`);
+ }
+
+ // ---- 机会格 ----
+ if (kind === 'chance') {
+ if (key === 'lotto') {
+ return payThen(p, 200, '买彩票', extra => {
+ if (lottery.won) return setResult(`🎟️ 可惜，头奖刚刚已经被 ${esc(lottery.winner)} 领走了，这张彩票没有中${extra}`);
+ if (Math.random() < 0.35) {
+ lottery.won = true; lottery.winner = p.name;
+ p.money += lottery.pot; p.happiness += 2;
+ log(`🎟️🎉 ${p.name} 中了彩票头奖 ${money(lottery.pot)}！全场唯一一次！`);
+ pushSystemChat(`🎟️🎉 ${p.name} 中了 ${money(lottery.pot)} 的彩票头奖！全场只此一次！`);
+ return setResult(`🎟️🎉 <b>中奖了！</b><br><b>${esc(p.name)}</b> 抱走全场唯一的头奖 <b style="color:var(--nature-gold);font-size:16px">${money(lottery.pot)}</b>，心情 +2❤️${extra}
+ <br><span style="font-size:11px;color:#94a3b8">这是本局最后一张中奖彩票，之后再买也不会中了。</span>`);
+ }
+ return setResult(`🎟️ 没中。$200 就这样飞了${extra}
+ <br><span style="font-size:11px;color:#94a3b8">彩票的期望值本来就低于成本——大多数人买到的是「希望」，不是钱。</span>`);
+ });
+ }
+ if (key === 'draw') {
+ const c = pick(chanceCards);
+ const fx = c.fx;
+ if (fx.happy) p.happiness = Math.max(0, p.happiness + fx.happy);
+ if (fx.skill) p.skill = +(p.skill + fx.skill).toFixed(2);
+ if (fx.jail) p.skipTurns = 1;
+ log(`🎁 机会卡：${c.text}`);
+ if (fx.money > 0) { p.money += fx.money; return setResult(`🎁 <b>机会卡</b><br>${c.text}<br><b style="color:var(--nature-green)">${money(fx.money)}</b>`); }
+ if (fx.money < 0) return payThen(p, -fx.money, c.text, extra => setResult(`🎁 <b>机会卡</b><br>${c.text}<br><b style="color:var(--nature-red)">${money(fx.money)}</b>${extra}`));
+ return setResult(`🎁 <b>机会卡</b><br>${c.text}`);
+ }
+ p.money += 200;
+ return setResult(`🚶 安全通过，领到 <b>+$200</b>。<br><span style="font-size:11px;color:#94a3b8">规避风险的代价，是放弃了大奖的可能。</span>`);
+ }
+
+ // ---- 买房 / 升级 ----
+ if (kind === 'buy') {
+ const i = meta.i;
+ if (key === 'buy' && propOwner[i] === -1) {
+ return payThen(p, BOARD[i].price, `购买 ${BOARD[i].name}`, extra => {
+ propOwner[i] = p.seat;
+ log(`🏠 ${p.name} 买下了 ${BOARD[i].name}`);
+ setResult(`🏠 恭喜！<b>${BOARD[i].name}</b> 归你了，之后每有人经过收租 <b>${money(rentOf(i))}</b>${extra}<br>
+ <span style="font-size:11px;color:#94a3b8">现金 ${money(-BOARD[i].price)}，但房产市值 ${money(BOARD[i].price)} 计入你的「身家合计」——钱只是<b>换了一种形式</b>。</span>`);
+ });
+ }
+ return setResult(`🚶 决定不买 <b>${BOARD[i].name}</b>，留着现金。`);
+ }
+ if (kind === 'upgrade') {
+ const i = meta.i, cost = upgradeCost(i);
+ if (key === 'up' && propLevel[i] < 2) {
+ return payThen(p, cost, `升级 ${BOARD[i].name}`, extra => {
+ propLevel[i]++;
+ log(`🏗️ ${p.name} 把 ${BOARD[i].name} 升级到 Lv.${propLevel[i]}`);
+ setResult(`🏗️ <b>${BOARD[i].name}</b> 升级完成，租金提高到 <b style="color:var(--nature-gold)">${money(rentOf(i))}</b>${extra}`);
+ });
+ }
+ return setResult(`🚶 这次先不升级 <b>${BOARD[i].name}</b>。`);
+ }
+
+ setResult('完成。');
 }
 
 // =====================================================================
@@ -1897,29 +2611,38 @@ function sendChat() {
 const RULES_HTML = `
 <h3>🎯 游戏目标</h3>
 <p>在 <span class="hl">12 个探险周期</span>内累积最高的「总分」。<br>
-总分 = 现金 + 存款(×1.08) + 投资市值 + 房产价值 − 负债 + <span class="hl">幸福感 × $300</span>。<br>
-所以只顾赚钱、把幸福感耗光的人，未必赢得了。</p>
+总分 = 身家合计 + <span class="hl">幸福感 × $300</span>；<br>
+身家合计 = 现金 + 房产市值 + 黄金 + 股票 + 存款(×1.08) − 负债。<br>
+只顾赚钱、把幸福感耗光的人，未必赢得了。</p>
+
+<h3>🗺️ 三张地图，开局前自己挑</h3>
+<ul>
+<li><b>🌤️ 天空之城（均衡入门）</b>：10 处房产，各类格子分布均衡，适合第一次玩。</li>
+<li><b>🌊 深海之城（地产大战）</b>：13 处房产，抢地盘、收租金的战场。</li>
+<li><b>🏜️ 沙漠绿洲（高风险）</b>：只有 8 处房产，机会格、沙暴与命运格特别多，靠运气与胆识翻身。</li>
+</ul>
+<p>联机时由<b>房主</b>挑选地图，本地同屏则任何人都能选。</p>
 
 <h3>🕹️ 一个回合怎么走</h3>
 <ul>
 <li>轮到你时，按「抛掷幸运橡果」丢两颗骰子前进（<span class="hl">1 分钟</span>内不按会自动帮你掷）。</li>
-<li>停在哪一格，就出现那一格<b>专属的选项</b>，每个选项都写明了它的 <span class="hl">机会成本</span>。</li>
+<li>停在哪一格，就出现那一格的<b>剧情与选项</b>——同一种格子每次的情境都不一样。</li>
 <li>选择同样限时 <span class="hl">1 分钟</span>；超时会自动执行标示为默认的那一项。</li>
 <li>经过起点可领半份薪水作为过路津贴。</li>
 </ul>
 
 <h3>💭 什么是机会成本？</h3>
 <p>你选了 A，就等于放弃了 B 能带给你的最大好处，<b>那份放弃掉的好处就是机会成本</b>。<br>
-例：花 $800 买黄金，机会成本是「这 $800 本来可以买下一间房收租」。游戏里每个选项下方的 💭 就是在提醒你这件事。</p>
+例：花 $800 买黄金，机会成本是「这 $800 本来可以买下一间房收租」。每个选项下方的 💭 就是在提醒你这件事。</p>
 
 <h3>💎 看懂你的面板</h3>
 <ul>
 <li><b>💵 现金</b>：手上能马上花的钱。</li>
-<li><b>🏠 房产（市值）</b>：你买下的房子值多少钱。买房时现金变少、房产市值变多，<span class="hl">钱只是换了形式，没有消失</span>；升级还会让市值再往上加。</li>
-<li><b>📈 投资</b>：黄金与股票的<b>当前市值</b>（不包含房产）。会被金融风暴腰斩、也会被牛市拉高。</li>
-<li><b>🏦 存款</b>：定存的本金，结算时按 ×1.08 计入。</li>
-<li><b>💳 负债</b>：贷款或刷卡欠下的钱，结算时要扣掉。</li>
-<li><b>💎 身家合计</b> = 现金 + 房产市值 + 投资 + 存款(×1.08) − 负债。<br>再加上 <b>幸福感 × $300</b> 就是最后的总分。</li>
+<li><b>🏠 房产（市值）</b>：你买下的房子值多少钱。买房时现金变少、房产市值变多，<span class="hl">钱只是换了形式，没有消失</span>。</li>
+<li><b>🥇 黄金 / 📊 股票</b>：投资资产的当前市值。黄金抗通胀、波动小；股票暴涨暴跌。</li>
+<li><b>🏦 存款</b>：定存本金，结算时按 ×1.08 计入。</li>
+<li><b>💳 负债</b>：贷款或分期欠下的钱，结算时要扣掉。</li>
+<li><b>💎 身家合计</b>：上面全部加总（减负债），再加幸福感 × $300 就是总分。</li>
 </ul>
 
 <h3>🏠 房产玩法（大富翁规则）</h3>
@@ -1930,44 +2653,96 @@ const RULES_HTML = `
 <li>租金会随通胀上升——通胀对房东有利，对租客不利。</li>
 </ul>
 
-<h3>🎲 各种格子</h3>
+<h3>🤝 向别人收购房产（要对方点头）</h3>
+<ul>
+<li>踩到别人的房产、付完租金后，你可以<b>开口提出收购</b>。</li>
+<li>接着轮到<b>房东开价</b>——卖不卖、卖多少，<span class="hl">完全由房东决定</span>，他也可以直接拒绝。</li>
+<li>房东开完价，再由你决定要不要接受。双方都点头，交易才成立。</li>
+<li>房东有 1 分钟决定，超时视为不卖。</li>
+</ul>
+
+<h3>💰 钱不够怎么办？可以变卖资产</h3>
+<p>付租金、缴税、买房、遇到意外时，如果现金不够，游戏会跳出<b>变卖资产</b>的选单：</p>
+<ul>
+<li><b>急售房产</b>：只能拿到市值的 <b>7 折</b>，而且从此没有租金收入。</li>
+<li><b>卖出黄金</b>：手续费 5%。<b>卖出股票</b>：急售折价 10%。</li>
+<li><b>解约定存</b>：拿回本金，但失去 8% 利息。</li>
+<li><b>向地下钱庄借钱</b>：什么都不卖，但差额 <b>×1.3</b> 计入负债。</li>
+</ul>
+<p>这就是流动性的意义：<b>资产不等于现金</b>，急着用钱时变现总要打折。</p>
+
+<h3>🎟️ 全场唯一的彩票</h3>
+<p>机会格可以花 <b>$200</b> 买一张彩票，头奖 <b>$2,500</b>。<br>
+整场游戏<span class="hl">只会开出一次</span>——第一个中奖的人拿走以后，彩票就不存在了。中奖率约 35%，
+也就是说买彩票的期望值低于成本，大多数人买到的是「希望」而不是钱。</p>
+
+<h3>🎲 各种格子（每次剧情都不同）</h3>
 <ul>
 <li><b>💰 收入格 / 🏁 起点</b>：领薪水（受薪资率与进修加成影响）。</li>
-<li><b>💸 支出格</b>：付清 / 兼职抵一半（扣心情）/ 刷卡延后（+20% 利息）。</li>
-<li><b>📈 投资格</b>：黄金（稳）/ 股票（波动大）/ 不投资（留现金但被通胀侵蚀）。</li>
-<li><b>🏦 银行格</b>：定存（锁住流动性）/ 贷款（现在有钱、以后多还）/ 不动作。</li>
-<li><b>⚖️ 决策格</b>：加班（钱↑心情↓）/ 陪家人（心情↑钱↓）/ 进修（先花钱，以后收入永久 +10%）。</li>
-<li><b>💼 跳槽格</b>：换工作（薪水可能更高也可能更低）/ 留任领 $400 年资奖金。</li>
-<li><b>🎁 机会格</b>：抽卡（有大奖也有罚单，甚至被拘留）/ 安全通过领 $200。</li>
-<li><b>🧾 税务格</b>：缴现金的 10% 所得税。</li>
-<li><b>🔮 命运格</b>：随机好事或坏事。</li>
-<li><b>⚡ 风险格</b>：意外损失并扣心情。</li>
-<li><b>🍃 平安驿站</b>：休息，幸福感 +2。</li>
+<li><b>💸 支出格</b>：医疗、修车、学费、婚礼、漏水、宠物看病……6 种情境，应对方式各不相同。</li>
+<li><b>📈 投资格</b>：黄金 / 股票 / 指数基金 / 加密货币 / 房地产信托，4 套菜单随机出现。</li>
+<li><b>🏦 银行格</b>：定存、贷款、降息、提前还债等 3 种情境。</li>
+<li><b>⚖️ 决策格</b>：周末怎么过、要不要合伙、体检报告、搬不搬家、社媒诱惑、开不开店……6 种人生难题。</li>
+<li><b>💼 跳槽格</b>：换工作 / 拿 offer 去谈加薪（60% 成功）/ 留任领 $400。</li>
+<li><b>🎁 机会格</b>：抽卡（20 张，有大奖也有罚单）/ 买彩票 / 安全通过领 $200。</li>
+<li><b>🧾 税务格</b>：所得税、房产税、关税，3 种税单。</li>
+<li><b>🔮 命运格</b>：20 张命运卡，好事坏事都有。</li>
+<li><b>⚡ 风险格 / 🌪️ 沙暴格</b>：8 种意外，有的扣钱，有的直接打击你的资产市值。</li>
+<li><b>🍃 平安驿站</b>：6 种休息方式，恢复幸福感。</li>
 <li><b>🚔 拘留所</b>：暂停一回合（时间也是稀缺资源）。</li>
 </ul>
 
 <h3>🌍 突发经济事件</h3>
-<p>全场随机会发生金融风暴、疫情封锁、通货膨胀或科技牛市，会改变<b>薪资率</b>、<b>通胀倍数</b>与<b>投资市值</b>。这告诉我们：个人选择之外，还有你无法控制的宏观环境。</p>
+<p>全场随机会发生金融风暴、疫情封锁、通货膨胀、科技牛市、房市大涨、AI 冲击就业。它们会改变<b>薪资率</b>、<b>通胀倍数</b>与<b>资产市值</b>：
+金融风暴时股票腰斩但黄金稳住，通胀时黄金上涨——<b>不同资产的抗风险能力不一样</b>。</p>
 
 <h3>🛑 紧急结算</h3>
-<p>任何玩家都能按顶部的「紧急结算」提议提前结束。<b>必须全体玩家一致同意</b>才会立刻结算；只要有一人选「继续游戏」，提案就取消。</p>
+<p>任何玩家都能按顶部的「紧急结算」提议提前结束。<b>必须全体玩家一致同意</b>才会立刻结算；只要有一人选「继续游戏」，提案就取消。<br>
+为了防止有人一直打断游戏，<span class="hl">每 1 分钟只能发起一次</span>，冷却期间按钮会显示倒数。</p>
 
 <h3>💬 评论区</h3>
-<p>游戏画面左侧下方有评论区，随时可以和其他玩家聊天、谈判、互相吐槽。</p>
+<p>游戏画面左侧下方有评论区，随时可以和其他玩家聊天、<b>谈判房价</b>、互相吐槽。</p>
 `;
 function openRules() { document.getElementById('rules-body').innerHTML = RULES_HTML; document.getElementById('rules-overlay').style.display = 'flex'; }
 function closeRules() { document.getElementById('rules-overlay').style.display = 'none'; }
 
 // =====================================================================
-// 🛑 紧急结算（需全体同意）
+// 🛑 紧急结算（需全体同意 · 每 1 分钟只能发起一次）
 // =====================================================================
 let voteState = null;
 let myVoteDone = false;
+let emergencyCooldownUntil = 0;   // 时间戳：在此之前不能再发起
+let emergencyTickId = null;
+
+function renderEmergencyBtn() {
+ const btn = document.getElementById('emergency-btn');
+ if (!btn) return;
+ const left = Math.ceil((emergencyCooldownUntil - Date.now()) / 1000);
+ if (left > 0) {
+ btn.disabled = true;
+ btn.innerText = `🛑 紧急结算（冷却 ${left}s）`;
+ if (!emergencyTickId) emergencyTickId = setInterval(renderEmergencyBtn, 1000);
+ } else {
+ btn.disabled = false;
+ btn.innerText = '🛑 紧急结算';
+ if (emergencyTickId) { clearInterval(emergencyTickId); emergencyTickId = null; }
+ }
+}
+function startEmergencyCooldown() {
+ emergencyCooldownUntil = Date.now() + VOTE_COOLDOWN_MS;
+ renderEmergencyBtn();
+}
 
 function requestEmergencyEnd() {
  if (!players.length) return;
+ if (Date.now() < emergencyCooldownUntil) {
+ const left = Math.ceil((emergencyCooldownUntil - Date.now()) / 1000);
+ appendLog(`⏳ 紧急结算冷却中，还要等 ${left} 秒`);
+ return;
+ }
  if (!isNet()) {
  if (confirm('确定要立即结束并结算本局游戏吗？')) hostEndGame('玩家选择了紧急结算');
+ else startEmergencyCooldown();
  return;
  }
  if (isClient()) { sendToHost({ t:'emergency' }); return; }
@@ -1976,12 +2751,26 @@ function requestEmergencyEnd() {
 
 function hostStartVote(initiator) {
  if (voteState) return;
+ if (Date.now() < emergencyCooldownUntil) {
+ const left = Math.ceil((emergencyCooldownUntil - Date.now()) / 1000);
+ const nm = players[initiator] ? players[initiator].name : '有玩家';
+ log(`⏳ ${nm} 想发起紧急结算，但冷却中（还要 ${left} 秒）`);
+ broadcast({ t:'votebusy', left: left });
+ return;
+ }
  voteState = { initiator: initiator, votes: {} };
  voteState.votes[initiator] = true;
  broadcast({ t:'vote', initiator: initiator, votes: voteState.votes });
  showVoteModal(initiator, voteState.votes);
  log(`🛑 ${players[initiator] ? players[initiator].name : '有玩家'} 提议紧急结算，等待全体表决`);
- setTimeout(() => { if (voteState) { broadcast({ t:'voteend', ok:false }); closeVoteModal('⏰ 表决超时，提案取消'); voteState = null; } }, 45000);
+ setTimeout(() => {
+ if (voteState) {
+ voteState = null;
+ startEmergencyCooldown();
+ broadcast({ t:'voteend', ok:false, cooldown: VOTE_COOLDOWN_MS });
+ closeVoteModal('⏰ 表决超时，提案取消');
+ }
+ }, 45000);
  hostCheckVote();
 }
 
@@ -2033,13 +2822,15 @@ function hostCheckVote() {
  else if (v === false) allYes = false;
  }
  if (!allYes) {
- broadcast({ t:'voteend', ok:false });
- closeVoteModal('❌ 有玩家希望继续游戏，提案取消');
  voteState = null;
+ startEmergencyCooldown();
+ broadcast({ t:'voteend', ok:false, cooldown: VOTE_COOLDOWN_MS });
+ closeVoteModal('❌ 有玩家希望继续游戏，提案取消（1 分钟后才能再次发起）');
  } else if (allIn) {
- broadcast({ t:'voteend', ok:true });
- closeVoteModal('✅ 全体同意，正在结算…');
  voteState = null;
+ startEmergencyCooldown();
+ broadcast({ t:'voteend', ok:true, cooldown: VOTE_COOLDOWN_MS });
+ closeVoteModal('✅ 全体同意，正在结算…');
  setTimeout(() => hostEndGame('全体玩家一致同意紧急结算'), 900);
  }
 }
@@ -2082,7 +2873,7 @@ function showPodiumReveal() {
  const richest = best(p => netWorth(p));
  const happiest = best(p => p.happiness);
  const landlord = best(p => p.rentEarned);
- const saver = best(p => p.savings + p.investValue);
+ const saver = best(p => p.savings + investValueOf(p));
 
  zone.innerHTML = `
  <h3 style="color:var(--nature-gold); font-size:1rem; margin-top:0;">🏆 最终排行榜</h3>
@@ -2100,7 +2891,7 @@ function showPodiumReveal() {
  ${ranked.map(p => `<tr>
  <td style="color:${p.color}">${p.icon} ${esc(p.name)}</td>
  <td>${money(p.money)}</td><td>${money(Math.floor(p.savings * 1.08))}</td>
- <td>${money(p.investValue)}</td><td>${money(propertyValue(p))}</td>
+ <td>${money(investValueOf(p))}</td><td>${money(propertyValue(p))}</td>
  <td style="color:${p.debt ? 'var(--nature-red)' : '#64748b'}">${money(p.debt)}</td>
  <td>${p.happiness}❤️</td>
  <td><b style="color:var(--nature-gold)">${money(overallScore(p))}</b></td>
@@ -2111,7 +2902,7 @@ function showPodiumReveal() {
  <div class="award-card"><span class="award-icon">💰</span><div><b>身家最丰厚</b><br>${richest.icon} ${esc(richest.name)} — 净资产 ${money(netWorth(richest))}</div></div>
  <div class="award-card"><span class="award-icon">❤️</span><div><b>最幸福的人</b><br>${happiest.icon} ${esc(happiest.name)} — ${happiest.happiness} 点幸福感（值 ${money(happiest.happiness * 300)}）</div></div>
  <div class="award-card"><span class="award-icon">🏠</span><div><b>地产大亨</b><br>${landlord.icon} ${esc(landlord.name)} — 收租共 ${money(landlord.rentEarned)}</div></div>
- <div class="award-card"><span class="award-icon">📈</span><div><b>理财达人</b><br>${saver.icon} ${esc(saver.name)} — 存款＋投资 ${money(saver.savings + saver.investValue)}</div></div>
+ <div class="award-card"><span class="award-icon">📈</span><div><b>理财达人</b><br>${saver.icon} ${esc(saver.name)} — 存款＋投资 ${money(saver.savings + investValueOf(saver))}</div></div>
  </div>
 
  <p style="font-size:12px;color:#94a3b8;line-height:1.7;margin-top:14px;text-align:left;">
