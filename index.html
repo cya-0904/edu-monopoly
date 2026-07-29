@@ -201,7 +201,7 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
 .board-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
 .board-2d {
  display: grid; grid-template-columns: repeat(9, 1fr); grid-template-rows: repeat(9, 1fr);
- gap: 3px; width: 100%; min-width: 620px; aspect-ratio: 1 / 1; margin: 0 auto; max-width: 780px;
+ gap: 3px; width: 100%; min-width: 660px; aspect-ratio: 1 / 1; margin: 0 auto; max-width: 780px;
 }
 .tile {
  position: relative; border-radius: 7px; padding: 3px 2px 2px;
@@ -215,11 +215,11 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
 .tile.current-tile { box-shadow: 0 0 0 2px var(--nature-gold), 0 0 14px rgba(251,191,36,0.6); z-index: 3; }
 .tile .t-owner { position: absolute; top: 0; left: 0; right: 0; height: 5px; }
 .tile .t-lv { position: absolute; top: 2px; right: 3px; font-size: 9px; color: #fff; text-shadow: 0 1px 2px #000; }
-.tile-tokens { position: absolute; bottom: 1px; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; }
+.tile-tokens { position: absolute; bottom: 1px; left: 0; right: 0; display: flex; flex-wrap: wrap; gap: 1px; justify-content: center; align-content: flex-end; }
 .token {
- width: 17px; height: 17px; border-radius: 50%; background: #0f172a;
- display: flex; align-items: center; justify-content: center; font-size: 11px;
- border: 2px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.7);
+ width: 15px; height: 15px; border-radius: 50%; background: #0f172a;
+ display: flex; align-items: center; justify-content: center; font-size: 9.5px;
+ border: 1.5px solid #fff; box-shadow: 0 2px 5px rgba(0,0,0,0.7); margin: 0 -1px;
 }
 .token.active { animation: tokenHop 0.7s ease-in-out infinite; }
 @keyframes tokenHop { 50% { transform: translateY(-4px) scale(1.12); } }
@@ -397,6 +397,7 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
  .log-box { height: 150px; }
  .tile .t-name { font-size: 11.5px; }
  .tile .t-icon { font-size: 20px; }
+ .token { width: 17px; height: 17px; font-size: 11px; border-width: 2px; }
  .room-stage { min-height: 520px; padding-bottom: 110px; }
  .room-count { bottom: 26px; left: 180px; right: 200px; }
  .room-start-btn { padding: 14px 40px; font-size: 19px; }
@@ -426,15 +427,15 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
  <div class="lobby-actions">
  <button class="lobby-big-btn lobby-create" onclick="openCreateRoom()">
  🏠 创建房间
- <span class="sub">生成 6 位邀请码，等待 1~3 位伙伴加入</span>
+ <span class="sub">生成 6 位邀请码，等待 1~5 位伙伴加入</span>
  </button>
  <button class="lobby-big-btn lobby-join" onclick="openJoinRoom()">
  🚪 加入房间
  <span class="sub">输入房主屏幕上的 6 位邀请码</span>
  </button>
  </div>
- <p class="lobby-hint">🌤️ 联机模式支持 2~4 人：房主创建房间后把邀请码分享给伙伴，<br>房间内满 2 人房主即可按下「开始」，最多可容纳 4 人。</p>
- <span class="lobby-local-link" onclick="startLocalMode()">或：本地同屏游戏（2~4 人共用一台设备）</span>
+ <p class="lobby-hint">🌤️ 联机模式支持 2~6 人：房主创建房间后把邀请码分享给伙伴，<br>房间内满 2 人房主即可按下「开始」，最多可容纳 6 人。</p>
+ <span class="lobby-local-link" onclick="startLocalMode()">或：本地同屏游戏（2~6 人共用一台设备）</span>
 </div>
 
 <!-- ===== 🏠 房间界面（房主 & 已加入的玩家共用） ===== -->
@@ -477,6 +478,8 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
  <option value="2">2人竞技模式</option>
  <option value="3">3人竞技模式</option>
  <option value="4">4人全员生态大乱斗</option>
+ <option value="5">5人混战</option>
+ <option value="6">6人天空争霸</option>
  </select>
  </div>
  <p style="text-align:center; font-size:12px; color:#94a3b8; margin:6px 0 12px;">🎨 共 <b id="avatar-total">16</b> 个角色任你挑选，<b>不限定、不锁定</b>，撞角色也没关系（棋子会用颜色和编号区分）</p>
@@ -626,7 +629,7 @@ const ANIMALS = [
  { name: "企鹅", icon: "🐧" }, { name: "猴子", icon: "🐵" }
 ];
 /* 座位颜色：即使两人选了同一个角色，棋子颜色也不同 */
-const SEAT_COLORS = ["#fb923c", "#38bdf8", "#4ade80", "#f472b6"];
+const SEAT_COLORS = ["#fb923c", "#38bdf8", "#4ade80", "#f472b6", "#a78bfa", "#facc15"];
 
 // ================= 🗺️ 棋盘（32 格，含 10 处房产） =================
 const TILE_STYLE = {
@@ -760,7 +763,7 @@ const ROOM_BG = {
 const ROOM_BG_HAS_TEXT = false;
 
 const ROOM_MIN = 2;                                   // 最少开局人数
-const ROOM_MAX = 4;                                   // 房间上限人数
+const ROOM_MAX = 6;                                   // 房间上限人数
 const CODE_LEN = 6;                                   // 邀请码长度
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I/O/0/1
 const PEER_PREFIX = 'tradeoff-skycity-';
