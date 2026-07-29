@@ -75,6 +75,21 @@ body.boomtime::after {
  pointer-events: none;
 }
 
+/* 🔌 连线状态条 */
+.net-banner {
+ position: fixed; top: 0; left: 0; right: 0; z-index: 10050;
+ display: flex; align-items: center; justify-content: center; gap: 10px;
+ padding: 9px 12px; font-size: 13px; font-weight: bold; color: #fff;
+ box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+}
+.net-banner.bad { background: linear-gradient(90deg, #b45309, #dc2626); }
+.net-banner.ok { background: linear-gradient(90deg, #15803d, #0369a1); }
+.net-banner button {
+ border: 1px solid rgba(255,255,255,0.6); background: rgba(0,0,0,0.25); color: #fff;
+ border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+}
+.net-banner button:hover { background: rgba(0,0,0,0.45); }
+
 .siren-bar {
  display: none; position: fixed; top: 0; left: 0; width: 100%; z-index: 9999;
  background: repeating-linear-gradient(45deg, #b91c1c, #b91c1c 20px, #7f1d1d 20px, #7f1d1d 40px);
@@ -435,6 +450,7 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
 </head>
 <body>
 
+<div class="net-banner" id="net-banner" style="display:none;"></div>
 <div class="siren-bar" id="siren-bar">🚨 经济紧急状态 · ECONOMIC EMERGENCY 🚨</div>
 <div id="emergency-overlay"></div>
 
@@ -1128,11 +1144,16 @@ const CODE_LEN = 6;                                   // 邀请码长度
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // 去掉易混淆的 I/O/0/1
 const PEER_PREFIX = 'tradeoff-skycity-';
 
+const RECONNECT_GRACE_MS = 90000;   // 🔌 掉线后座位保留时间（房间/选人阶段）
 const NET = {
  mode: 'local', peer: null, conns: [], hostConn: null,
  roster: [], myIndex: 0, code: '',
- locked: false, started: false, remoteAct: false
+ locked: false, started: false, remoteAct: false,
+ joined: false,          // 是否已经成功进过房间（决定断线后要不要自动重连）
+ rejected: false,        // 被房主明确拒绝（不再自动重连）
+ connecting: false, retry: 0, reconnectTimer: null, hbTimer: null, lastHostMsgAt: 0
 };
+let chatHistory = [];   // 供重连时补发
 
 const isNet = () => NET.mode !== 'local';
 const isHost = () => NET.mode === 'host';
@@ -1211,11 +1232,17 @@ function startLocalMode() {
 }
 function backToLobby() { teardownNet(); showScreen('lobby-screen'); }
 function teardownNet() {
+ if (NET.reconnectTimer) { clearTimeout(NET.reconnectTimer); NET.reconnectTimer = null; }
+ if (NET.hbTimer) { clearInterval(NET.hbTimer); NET.hbTimer = null; }
+ NET.roster.forEach(r => { if (r.dropTimer) clearTimeout(r.dropTimer); });
  try { NET.conns.forEach(c => c.close()); } catch (e) {}
  try { if (NET.hostConn) NET.hostConn.close(); } catch (e) {}
  try { if (NET.peer) NET.peer.destroy(); } catch (e) {}
  NET.mode = 'local'; NET.peer = null; NET.conns = []; NET.hostConn = null;
  NET.roster = []; NET.myIndex = 0; NET.code = ''; NET.locked = false; NET.started = false;
+ NET.joined = false; NET.connecting = false; NET.retry = 0; NET.lastHostMsgAt = 0;
+ chatHistory = [];
+ setNetBanner(''); clearSession();
 }
 function leaveRoom() { if (confirm('确定要离开房间吗？')) backToLobby(); }
 
@@ -1224,7 +1251,7 @@ function openCreateRoom() {
  if (!peerLibReady()) return;
  teardownNet();
  NET.mode = 'host';
- NET.roster = [{ peerId: 'HOST', name: '探索者_1', avatarIdx: 0, online: true }];
+ NET.roster = [{ peerId: 'HOST', token: 'HOST', name: '探索者_1', avatarIdx: 0, online: true }];
  NET.myIndex = 0;
  const box = document.getElementById('room-code');
  box.innerText = '······'; box.classList.add('pending');
@@ -1233,44 +1260,106 @@ function openCreateRoom() {
  roomStatus('正在连接联机服务器…');
  showScreen('create-room-screen');
  openHostPeer(0);
+ startHeartbeat();
 }
 
 function openHostPeer(attempt) {
  if (attempt > 5) { roomStatus('无法创建房间，请稍后再试或改用本地同屏游戏。', true); return; }
- const code = makeRoomCode();
+ const code = NET.code || makeRoomCode();
  const peer = new Peer(peerIdFor(code), { debug: 0 });
  NET.peer = peer;
  peer.on('open', () => {
  NET.code = code;
  const box = document.getElementById('room-code');
  box.innerText = code; box.classList.remove('pending');
- roomStatus('房间已开启，等待伙伴加入…');
+ roomStatus(NET.started ? '房间已恢复' : '房间已开启，等待伙伴加入…');
+ setNetBanner('');
  renderRoom();
+ saveSession();
+ });
+ peer.on('disconnected', () => {
+ // 与信令服务器断线（切到别的 App 常见）：保留房间号直接重连
+ setNetBanner('与联机服务器断线，正在自动重连…', true);
+ setTimeout(() => { try { if (NET.peer && !NET.peer.destroyed) NET.peer.reconnect(); } catch (e) {} }, 800);
  });
  peer.on('error', err => {
- if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
+ const type = err && err.type;
+ if (type === 'unavailable-id' || type === 'invalid-id') {
+ // 只有「首次开房」才换号；重连时同一个号被占着，稍后再试
  try { peer.destroy(); } catch (e) {}
- openHostPeer(attempt + 1);
- } else if (err && err.type === 'peer-unavailable') { /* 客户端断线，忽略 */ }
- else roomStatus('联机服务器连接异常：' + (err && err.type ? err.type : '未知错误'), true);
+ if (NET.started || NET.locked) { setTimeout(() => openHostPeer(attempt + 1), 1500); }
+ else { NET.code = ''; openHostPeer(attempt + 1); }
+ } else if (type === 'peer-unavailable') { /* 某个客户端不在了，忽略 */ }
+ else if (type === 'network' || type === 'server-error' || type === 'socket-error' || type === 'socket-closed') {
+ setNetBanner('联机服务器连接不稳，正在重试…', true);
+ setTimeout(() => { try { if (NET.peer && !NET.peer.destroyed) NET.peer.reconnect(); } catch (e) {} }, 1200);
+ } else roomStatus('联机服务器连接异常：' + (type || '未知错误'), true);
  });
  peer.on('connection', conn => {
- conn.on('open', () => onClientConnected(conn));
  conn.on('data', data => onHostReceive(conn, data));
  conn.on('close', () => onClientDisconnected(conn));
  conn.on('error', () => onClientDisconnected(conn));
+ conn.on('open', () => {
+ conn.__seen = Date.now();
+ // 等待对方自报 token；8 秒还不报就断开
+ setTimeout(() => { if (!conn.__token) { try { conn.close(); } catch (e) {} } }, 8000);
+ });
  });
 }
 
-function onClientConnected(conn) {
+/* 客户端自报身份：新加入 或 断线重连 */
+function hostHandleHello(conn, msg) {
+ const token = String(msg.token || '').slice(0, 64);
+ conn.__token = token || ('anon-' + conn.peer);
+ conn.__seen = Date.now();
+
+ const seat = NET.roster.findIndex(r => r.token && r.token === token);
+ if (seat >= 0) {
+ // —— 断线重连：座位还留着，直接接回去 ——
+ const old = NET.conns.find(c => c.__token === token && c !== conn);
+ if (old) { try { old.close(); } catch (e) {} NET.conns.splice(NET.conns.indexOf(old), 1); }
+ NET.conns.push(conn);
+ const r = NET.roster[seat];
+ r.peerId = conn.peer; r.online = true;
+ if (r.dropTimer) { clearTimeout(r.dropTimer); r.dropTimer = null; }
+ conn.send(resumePayload(seat));
+ broadcastRoster();
+ renderRoom();
+ if (NET.started) { updateUI(); renderActionZone(); }
+ const back = `🔌 ${r.name} 重新连上了`;
+ log(back); pushSystemChat(back);
+ roomStatus(back);
+ return;
+ }
+
+ // —— 全新加入 ——
  if (NET.locked || NET.started) { conn.send({ t:'reject', reason:'房间已经开局啦' }); setTimeout(() => conn.close(), 400); return; }
  if (NET.roster.length >= ROOM_MAX) { conn.send({ t:'reject', reason:`房间已满（${ROOM_MAX}/${ROOM_MAX}）` }); setTimeout(() => conn.close(), 400); return; }
  NET.conns.push(conn);
  const idx = NET.roster.length;
- NET.roster.push({ peerId: conn.peer, name: '探索者_' + (idx + 1), avatarIdx: idx % ANIMALS.length, online: true });
+ NET.roster.push({ peerId: conn.peer, token: conn.__token, name: '探索者_' + (idx + 1), avatarIdx: idx % ANIMALS.length, online: true, dropTimer: null });
  conn.send({ t:'welcome', index: idx, code: NET.code });
  broadcastRoster(); renderRoom();
  roomStatus(`「${NET.roster[idx].name}」加入了房间`);
+}
+
+/* 重连时把完整现场一次发回去 */
+function resumePayload(seat) {
+ return {
+ t: 'resume',
+ index: seat,
+ code: NET.code,
+ stage: NET.started ? 'game' : (NET.locked ? 'setup' : 'room'),
+ mapId: currentMapId,
+ roster: rosterForWire(),
+ players: players,
+ propOwner: propOwner,
+ propLevel: propLevel,
+ lottery: lottery,
+ state: NET.started ? snapshotState() : null,
+ chat: chatHistory.slice(-30),
+ cooldownLeft: Math.max(0, emergencyCooldownUntil - Date.now())
+ };
 }
 
 function onClientDisconnected(conn) {
@@ -1278,18 +1367,30 @@ function onClientDisconnected(conn) {
  if (ci >= 0) NET.conns.splice(ci, 1);
  const ri = NET.roster.findIndex(r => r.peerId === conn.peer);
  if (ri < 0) return;
+ const r = NET.roster[ri];
+ if (r.online === false) return;   // 已经标记过了
+ r.online = false;
+ broadcastRoster();
+ renderRoom();
+
  if (NET.started) {
- NET.roster[ri].online = false;
- log(`📴 ${NET.roster[ri].name} 掉线了（其回合将由房主代为操作）`);
+ log(`📴 ${r.name} 掉线了，座位保留中（回来即可继续；其回合暂由房主代打）`);
+ pushSystemChat(`📴 ${r.name} 掉线了，正在等他回来…`);
  updateUI(); renderActionZone();
  } else {
- const leaver = NET.roster[ri].name;
- NET.roster.splice(ri, 1);
- NET.roster.forEach((r, i) => { if (r.peerId !== 'HOST') sendTo(r.peerId, { t:'reindex', index: i }); });
+ // 房间/选人阶段：先保留座位 RECONNECT_GRACE_MS，超时才真的移除
+ roomStatus(`「${r.name}」暂时掉线，座位保留 ${Math.round(RECONNECT_GRACE_MS / 1000)} 秒…`);
+ if (r.dropTimer) clearTimeout(r.dropTimer);
+ r.dropTimer = setTimeout(() => {
+ const k = NET.roster.indexOf(r);
+ if (k < 0 || r.online) return;
+ NET.roster.splice(k, 1);
+ NET.roster.forEach((x, i) => { if (x.peerId !== 'HOST') sendTo(x.peerId, { t:'reindex', index: i }); });
  broadcastRoster();
  if (NET.locked) { NET.locked = false; broadcast({ t:'backtoroom' }); showScreen('create-room-screen'); }
  renderRoom();
- roomStatus(`「${leaver}」离开了房间`);
+ roomStatus(`「${r.name}」超时未回来，已离开房间`);
+ }, RECONNECT_GRACE_MS);
  }
 }
 
@@ -1306,6 +1407,7 @@ function onJoinCodeInput(el) {
  el.value = el.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, CODE_LEN);
  joinStatus('');
 }
+
 function doJoinRoom() {
  const code = document.getElementById('join-code-input').value.trim().toUpperCase();
  if (code.length !== CODE_LEN) { joinStatus(`请输入完整的 ${CODE_LEN} 位邀请码`, true); return; }
@@ -1313,37 +1415,183 @@ function doJoinRoom() {
  document.getElementById('join-confirm-btn').disabled = true;
  joinStatus('正在连接房间…');
  NET.mode = 'client';
+ NET.code = code;
+ NET.retry = 0; NET.rejected = false;
+ clientConnect();
+ startHeartbeat();
+}
+
+/* 客户端连线（首次与重连共用） */
+function clientConnect() {
+ if (NET.mode !== 'client') return;
+ NET.connecting = true;
+ try { if (NET.peer && !NET.peer.destroyed) NET.peer.destroy(); } catch (e) {}
+
  const peer = new Peer({ debug: 0 });
  NET.peer = peer;
+
  peer.on('open', () => {
- const conn = peer.connect(peerIdFor(code), { reliable: true });
+ const conn = peer.connect(peerIdFor(NET.code), { reliable: true });
  NET.hostConn = conn;
- conn.on('open', () => conn.send({ t:'hello' }));
- conn.on('data', data => onClientReceive(data));
- conn.on('close', () => {
- if (!NET.started) { joinStatus('与房间的连接已断开', true); document.getElementById('join-confirm-btn').disabled = false; }
- else alert('与房主的连接已断开，游戏无法继续。');
+ conn.on('open', () => {
+ NET.connecting = false;
+ NET.retry = 0;
+ NET.lastHostMsgAt = Date.now();
+ conn.send({ t:'hello', token: myToken(), name: (NET.roster[NET.myIndex] || {}).name || '' });
  });
+ conn.on('data', data => { NET.lastHostMsgAt = Date.now(); onClientReceive(data); });
+ conn.on('close', () => onHostConnLost('与房主的连接中断'));
+ conn.on('error', () => onHostConnLost('连接出错'));
  });
+
+ peer.on('disconnected', () => {
+ setNetBanner('网络中断，正在自动重连…', true);
+ setTimeout(() => { try { if (NET.peer && !NET.peer.destroyed) NET.peer.reconnect(); } catch (e) {} }, 600);
+ });
+
  peer.on('error', err => {
- const t = err && err.type;
+ const type = err && err.type;
+ if (type === 'peer-unavailable') {
+ if (NET.joined) onHostConnLost('房主暂时不在线');
+ else { document.getElementById('join-confirm-btn').disabled = false; joinStatus('找不到这个房间，请确认邀请码是否正确', true); NET.connecting = false; }
+ } else if (!NET.joined) {
  document.getElementById('join-confirm-btn').disabled = false;
- if (t === 'peer-unavailable') joinStatus('找不到这个房间，请确认邀请码是否正确', true);
- else joinStatus('连接失败：' + (t || '未知错误'), true);
+ joinStatus('连接失败：' + (type || '未知错误'), true);
+ NET.connecting = false;
+ } else onHostConnLost('网络异常（' + (type || '未知') + '）');
  });
 }
 
+function onHostConnLost(reason) {
+ NET.connecting = false;
+ if (NET.mode !== 'client') return;
+ if (NET.rejected) return;      // 是被房主拒绝的，别把提示盖掉
+ if (!NET.joined) {
+ document.getElementById('join-confirm-btn').disabled = false;
+ joinStatus(reason, true);
+ return;
+ }
+ scheduleReconnect(reason);
+}
+
+/* 指数退避自动重连：1s → 2s → 3s → 5s → 8s（上限 8s，无限重试） */
+function scheduleReconnect(reason) {
+ if (NET.mode !== 'client' || NET.connecting) return;
+ if (NET.reconnectTimer) return;
+ NET.retry = (NET.retry || 0) + 1;
+ const waits = [1000, 2000, 3000, 5000, 8000];
+ const wait = waits[Math.min(NET.retry - 1, waits.length - 1)];
+ setNetBanner(`${reason}，${Math.round(wait / 1000)} 秒后自动重连（第 ${NET.retry} 次）…`, true);
+ NET.reconnectTimer = setTimeout(() => {
+ NET.reconnectTimer = null;
+ clientConnect();
+ }, wait);
+}
+
+/* 手动「立即重连」 */
+function reconnectNow() {
+ if (NET.mode !== 'client') {
+ if (isHost() && NET.peer && NET.peer.disconnected) { try { NET.peer.reconnect(); } catch (e) {} setNetBanner('正在重连…', true); }
+ return;
+ }
+ if (NET.reconnectTimer) { clearTimeout(NET.reconnectTimer); NET.reconnectTimer = null; }
+ NET.retry = 0;
+ setNetBanner('正在重新连接…', true);
+ clientConnect();
+}
+
+/* 💓 心跳：5 秒一次；超过 15 秒没听到房主就主动重连 */
+function startHeartbeat() {
+ if (NET.hbTimer) clearInterval(NET.hbTimer);
+ NET.hbTimer = setInterval(() => {
+ if (NET.mode === 'client') {
+ if (NET.hostConn && NET.hostConn.open) {
+ try { NET.hostConn.send({ t:'ping' }); } catch (e) {}
+ if (NET.joined && Date.now() - (NET.lastHostMsgAt || 0) > 15000) {
+ try { NET.hostConn.close(); } catch (e) {}
+ scheduleReconnect('长时间没有收到房主的消息');
+ }
+ } else if (NET.joined && !NET.connecting) scheduleReconnect('连接已断开');
+ } else if (NET.mode === 'host') {
+ NET.conns.forEach(c => { try { c.send({ t:'ping' }); } catch (e) {} });
+ // 超过 20 秒没消息视为掉线
+ NET.conns.slice().forEach(c => { if (Date.now() - (c.__seen || 0) > 20000) onClientDisconnected(c); });
+ }
+ }, 5000);
+}
+
+/* 👀 从别的 App 切回来时立刻检查连接 */
+document.addEventListener('visibilitychange', () => {
+ if (document.visibilityState !== 'visible') return;
+ if (NET.mode === 'client' && NET.joined) {
+ if (!NET.hostConn || !NET.hostConn.open) reconnectNow();
+ else { try { NET.hostConn.send({ t:'ping' }); } catch (e) { reconnectNow(); } }
+ } else if (NET.mode === 'host' && NET.peer && NET.peer.disconnected && !NET.peer.destroyed) {
+ try { NET.peer.reconnect(); } catch (e) {}
+ }
+});
+window.addEventListener('online', () => { if (NET.mode === 'client' && NET.joined) reconnectNow(); });
+window.addEventListener('pageshow', () => { if (NET.mode === 'client' && NET.joined && (!NET.hostConn || !NET.hostConn.open)) reconnectNow(); });
+
+/* 顶部连线状态条 */
+function setNetBanner(text, bad) {
+ const bar = document.getElementById('net-banner');
+ if (!bar) return;
+ if (!text) { bar.style.display = 'none'; return; }
+ bar.className = 'net-banner' + (bad ? ' bad' : ' ok');
+ bar.innerHTML = `<span>${esc(text)}</span><button onclick="reconnectNow()">立即重连</button>`;
+ bar.style.display = 'flex';
+}
+
+/* 🔑 稳定身份：换 Peer ID 也认得出是同一个人 */
+function myToken() {
+ let t = '';
+ try { t = localStorage.getItem('tradeoff_token') || ''; } catch (e) {}
+ if (!t) {
+ t = 'tk-' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+ try { localStorage.setItem('tradeoff_token', t); } catch (e) {}
+ }
+ return t;
+}
+function saveSession() {
+ try {
+ if (isNet() && NET.code) sessionStorage.setItem('tradeoff_room', JSON.stringify({ code: NET.code, host: isHost() }));
+ } catch (e) {}
+}
+function clearSession() { try { sessionStorage.removeItem('tradeoff_room'); } catch (e) {} }
+
+/* 页面被刷新/被系统杀掉后重新打开：自动回到刚才的房间 */
+function tryAutoRejoin() {
+ let saved = null;
+ try { saved = JSON.parse(sessionStorage.getItem('tradeoff_room') || 'null'); } catch (e) {}
+ if (!saved || !saved.code || saved.host) return;
+ if (typeof Peer === 'undefined') return;
+ NET.mode = 'client';
+ NET.code = saved.code;
+ NET.retry = 0;
+ setNetBanner(`正在重新加入房间 ${saved.code}…`, true);
+ showScreen('join-room-screen');
+ document.getElementById('join-code-input').value = saved.code;
+ clientConnect();
+ startHeartbeat();
+}
+
 // ---------------------- 消息收发 ----------------------
+
 function broadcast(msg) { NET.conns.forEach(c => { try { c.send(msg); } catch (e) {} }); }
 function sendTo(peerId, msg) { const c = NET.conns.find(x => x.peer === peerId); if (c) { try { c.send(msg); } catch (e) {} } }
 function sendToHost(msg) { if (NET.hostConn) { try { NET.hostConn.send(msg); } catch (e) {} } }
-function broadcastRoster() { broadcast({ t:'roster', roster: NET.roster }); }
+function rosterForWire() { return NET.roster.map(r => ({ peerId:r.peerId, token:r.token, name:r.name, avatarIdx:r.avatarIdx, online:r.online })); }
+function broadcastRoster() { broadcast({ t:'roster', roster: rosterForWire() }); }
 
 function onHostReceive(conn, msg) {
  if (!msg || !msg.t) return;
+ conn.__seen = Date.now();
+ if (msg.t === 'hello') return hostHandleHello(conn, msg);
+ if (msg.t === 'ping') { try { conn.send({ t:'pong' }); } catch (e) {} return; }
+ if (msg.t === 'pong') return;
  const idx = NET.roster.findIndex(r => r.peerId === conn.peer);
  switch (msg.t) {
- case 'hello': break;
  case 'pick':
  if (idx < 0) return;
  if (typeof msg.name === 'string') NET.roster[idx].name = msg.name.slice(0, 12) || ('探索者_' + (idx + 1));
@@ -1377,9 +1625,14 @@ function onHostReceive(conn, msg) {
 
 function onClientReceive(msg) {
  if (!msg || !msg.t) return;
+ if (msg.t === 'ping') { sendToHost({ t:'pong' }); return; }
+ if (msg.t === 'pong') return;
+ if (msg.t === 'resume') return applyResume(msg);
  switch (msg.t) {
  case 'welcome':
  NET.myIndex = msg.index; NET.code = msg.code;
+ NET.joined = true; NET.retry = 0; setNetBanner(''); saveSession();
+ document.getElementById('join-confirm-btn').disabled = false;
  document.getElementById('room-code').innerText = msg.code;
  document.getElementById('room-code').classList.remove('pending');
  document.getElementById('room-start-btn').style.display = 'none';
@@ -1387,11 +1640,14 @@ function onClientReceive(msg) {
  showScreen('create-room-screen');
  roomStatus('已加入房间，等待房主开始…');
  break;
- case 'reject':
+ case 'reject': {
+ const reason = msg.reason || '无法加入房间';
+ teardownNet();
+ NET.mode = 'client'; NET.rejected = true;
  document.getElementById('join-confirm-btn').disabled = false;
- joinStatus(msg.reason || '无法加入房间', true);
- teardownNet(); NET.mode = 'client';
+ joinStatus(reason, true);
  break;
+ }
  case 'reindex': NET.myIndex = msg.index; break;
  case 'roster':
  NET.roster = msg.roster; renderRoom();
@@ -1427,6 +1683,49 @@ function onClientReceive(msg) {
  }
 }
 
+/* 🔌 断线重连后：把整个现场一次恢复 */
+function applyResume(msg) {
+ NET.mode = 'client';
+ NET.joined = true; NET.retry = 0; NET.connecting = false;
+ NET.myIndex = msg.index; NET.code = msg.code;
+ NET.roster = msg.roster || [];
+ if (msg.mapId) { currentMapId = msg.mapId; BOARD = mapById(msg.mapId).tiles; }
+ if (msg.propOwner) propOwner = msg.propOwner;
+ if (msg.propLevel) propLevel = msg.propLevel;
+ if (msg.lottery) lottery = msg.lottery;
+ if (msg.cooldownLeft > 0) { emergencyCooldownUntil = Date.now() + msg.cooldownLeft; }
+
+ const btn = document.getElementById('join-confirm-btn');
+ if (btn) btn.disabled = false;
+ document.getElementById('room-code').innerText = msg.code;
+ document.getElementById('room-code').classList.remove('pending');
+ document.getElementById('room-start-btn').style.display = 'none';
+ document.getElementById('room-copy-tip').innerText = '（你已进入房间）';
+
+ if (msg.stage === 'game') {
+ NET.started = true; NET.locked = true;
+ players = msg.players || [];
+ showScreen('game-screen');
+ buildBoard();
+ restoreChat(msg.chat);
+ isAnimating = false; pendingState = null;
+ if (msg.state) applyRemoteState(msg.state);
+ else { updateUI(); renderActionZone(); }
+ } else if (msg.stage === 'setup') {
+ NET.locked = true;
+ enterMultiSetup();
+ } else {
+ showScreen('create-room-screen');
+ }
+ renderRoom();
+ renderEmergencyBtn();
+ roomStatus('✅ 已重新连上房间');
+ joinStatus('');
+ setNetBanner('');
+ saveSession();
+ pushSystemChat('🔌 你已重新连上房间');
+}
+
 // ---------------------- 房间界面渲染 ----------------------
 function renderRoom() {
  const n = NET.roster.length;
@@ -1440,7 +1739,8 @@ function renderRoom() {
  const cfg = ANIMALS[r.avatarIdx] || ANIMALS[0];
  html += `<div class="room-chip"><span class="chip-icon">${cfg.icon}</span>${esc(r.name)}` +
  (i === 0 ? '<span class="chip-host">（房主）</span>' : '') +
- (i === NET.myIndex ? '<span class="you-tag">你</span>' : '') + `</div>`;
+ (i === NET.myIndex ? '<span class="you-tag">你</span>' : '') +
+ (r.online === false ? '<span class="offline-tag">掉线中·座位保留</span>' : '') + `</div>`;
  } else html += `<div class="room-chip empty"><span class="chip-icon">➕</span>等待加入…</div>`;
  }
  document.getElementById('room-chips').innerHTML = html;
@@ -2575,6 +2875,8 @@ function addChatLine(name, text) {
  d.className = 'chat-msg';
  d.innerHTML = `<span class="cm-name" style="color:${color}">${esc(name)}:</span>${esc(text)}`;
  box.appendChild(d);
+ chatHistory.push({ name: name, text: text });
+ if (chatHistory.length > 60) chatHistory.shift();
  while (box.children.length > 120) box.removeChild(box.firstChild);
  box.scrollTop = box.scrollHeight;
 }
@@ -2583,6 +2885,14 @@ function pushSystemChat(text) {
  const d = document.createElement('div');
  d.className = 'chat-msg system'; d.innerText = text;
  box.appendChild(d); box.scrollTop = box.scrollHeight;
+ chatHistory.push({ sys: true, text: text });
+ if (chatHistory.length > 60) chatHistory.shift();
+}
+function restoreChat(list) {
+ const box = document.getElementById('chat-box');
+ box.innerHTML = '';
+ chatHistory = [];
+ (list || []).forEach(m => { if (m.sys) pushSystemChat(m.text); else addChatLine(m.name, m.text); });
 }
 function pushChat(name, text) {   // 房主端：显示并转发
  const clean = String(text || '').slice(0, 120).trim();
@@ -2699,6 +3009,15 @@ const RULES_HTML = `
 <h3>🛑 紧急结算</h3>
 <p>任何玩家都能按顶部的「紧急结算」提议提前结束。<b>必须全体玩家一致同意</b>才会立刻结算；只要有一人选「继续游戏」，提案就取消。<br>
 为了防止有人一直打断游戏，<span class="hl">每 1 分钟只能发起一次</span>，冷却期间按钮会显示倒数。</p>
+
+<h3>🔌 掉线了怎么办？（手机切换 App 也不怕）</h3>
+<ul>
+<li>切到别的 App、锁屏、网络抖动都可能让连接中断——游戏会<b>自动帮你重连</b>，顶部会出现一条状态条，也可以按上面的「立即重连」马上试。</li>
+<li>你的<b>座位、金钱、房产全部保留</b>：重连回来会自动恢复到当前画面，连聊天记录都会补回来。</li>
+<li>已经开局的房间：座位<b>一直保留</b>，你随时回得来；轮到你时如果还没回来，会暂由房主代打，不会卡住其他人。</li>
+<li>还在房间/选角色阶段：座位会保留 <span class="hl">90 秒</span>，超时才会释放给别人。</li>
+<li>如果整个页面被系统关掉了，重新打开网页会<b>自动回到刚才的房间</b>，不用再输一次邀请码。</li>
+</ul>
 
 <h3>💬 评论区</h3>
 <p>游戏画面左侧下方有评论区，随时可以和其他玩家聊天、<b>谈判房价</b>、互相吐槽。</p>
@@ -2916,6 +3235,7 @@ function showPodiumReveal() {
 // =====================================================================
 applyRoomBackgrounds();
 generateNameInputs();
+setTimeout(tryAutoRejoin, 400);
 document.getElementById('avatar-total').innerText = ANIMALS.length;
 </script>
 </body>
