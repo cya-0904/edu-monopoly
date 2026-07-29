@@ -147,7 +147,7 @@ h1 {
  background: rgba(15,23,42,0.75); border: 1px solid rgba(255,255,255,0.12);
  border-radius: 12px; padding: 6px 10px; margin-bottom: 10px; font-size: 13px; font-weight: bold;
 }
-.turn-timer .tt-num { font-family: 'Courier New', monospace; font-size: 18px; color: var(--nature-green); min-width: 34px; text-align: center; }
+.turn-timer .tt-num { font-family: 'Courier New', monospace; font-size: 18px; color: var(--nature-green); min-width: 52px; text-align: center; }
 .turn-timer.urgent .tt-num { color: var(--nature-red); animation: ttPulse 0.6s infinite; }
 @keyframes ttPulse { 50% { opacity: 0.35; } }
 .tt-bar { flex: 1; height: 6px; background: rgba(255,255,255,0.12); border-radius: 4px; overflow: hidden; }
@@ -594,8 +594,8 @@ let globalInflation = 1.0;
 let salaryRate = 1.0;
 let economyStateName = "和平稳定";
 
-const CHOICE_SECONDS = 20;   // ⏱️ 每次做选择的限时
-const ROLL_SECONDS = 20;     // ⏱️ 掷骰限时
+const CHOICE_SECONDS = 60;   // ⏱️ 每次做选择的限时（1 分钟）
+const ROLL_SECONDS = 60;     // ⏱️ 掷骰限时（1 分钟）
 const RESULT_MS = 2800;      // 结果展示后自动换人
 
 const JOBS = [
@@ -1323,11 +1323,21 @@ function stopCountdown() {
  phaseTimerId = null;
  document.getElementById('turn-timer').style.display = 'none';
 }
+/* 60 秒以上显示成 1:05 这样的格式，60 秒以下直接显示秒数 */
+function fmtTime(sec) {
+ if (phaseTotal < 60) return sec + 's';
+ const m = Math.floor(sec / 60), r = sec % 60;
+ return m + ':' + String(r).padStart(2, '0');
+}
+function secLabel(sec) {
+ if (sec % 60 === 0 && sec >= 60) return (sec / 60) + ' 分钟';
+ return sec + ' 秒';
+}
 function renderTimer() {
  const box = document.getElementById('turn-timer');
- document.getElementById('tt-num').innerText = phaseLeft + 's';
+ document.getElementById('tt-num').innerText = fmtTime(Math.max(0, phaseLeft));
  document.getElementById('tt-fill').style.width = Math.max(0, (phaseLeft / phaseTotal) * 100) + '%';
- box.classList.toggle('urgent', phaseLeft <= 5);
+ box.classList.toggle('urgent', phaseLeft <= 10);
 }
 function startCountdown(sec, onExpire) {
  stopCountdown();
@@ -1503,7 +1513,7 @@ function renderActionZone() {
  const lbl = document.getElementById('dice-result-label'); if (lbl) lbl.innerText = '';
  zone.innerHTML = mine
  ? `<p class="action-title">🎲 轮到你了，${esc(p.name)}</p>
- <p class="action-sub">抛掷两颗幸运橡果向前移动。${ROLL_SECONDS} 秒内不掷将自动为你抛掷。</p>
+ <p class="action-sub">抛掷两颗幸运橡果向前移动。${secLabel(ROLL_SECONDS)}内不掷将自动为你抛掷。</p>
  <button class="btn btn-accent" id="dice-btn" onclick="playTurn()">🎲 抛掷幸运橡果</button>`
  : `<p class="turn-wait">⏳ 等待【<b>${esc(p.name)}</b>】抛掷幸运橡果…</p>`;
  } else if (currentPhase === 'choice' && phaseData) {
@@ -1884,9 +1894,9 @@ const RULES_HTML = `
 
 <h3>🕹️ 一个回合怎么走</h3>
 <ul>
-<li>轮到你时，按「抛掷幸运橡果」丢两颗骰子前进（<span class="hl">20 秒</span>内不按会自动帮你掷）。</li>
+<li>轮到你时，按「抛掷幸运橡果」丢两颗骰子前进（<span class="hl">1 分钟</span>内不按会自动帮你掷）。</li>
 <li>停在哪一格，就出现那一格<b>专属的选项</b>，每个选项都写明了它的 <span class="hl">机会成本</span>。</li>
-<li>选择同样限时 <span class="hl">20 秒</span>；超时会自动执行标示为默认的那一项。</li>
+<li>选择同样限时 <span class="hl">1 分钟</span>；超时会自动执行标示为默认的那一项。</li>
 <li>经过起点可领半份薪水作为过路津贴。</li>
 </ul>
 
