@@ -824,9 +824,6 @@ function setMap(id) {
 let propOwner = new Array(32).fill(-1);   // -1 = 无人拥有
 let propLevel = new Array(32).fill(0);    // 0=地皮 1=小屋 2=大楼
 
-/* 🎟️ 全场只开出一次的彩票 */
-let lottery = { won: false, winner: '', pot: 2500 };
-
 function rand(min, max) { return Math.random() * (max - min) + min; }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
 function pick(arr) { return arr[randInt(0, arr.length - 1)]; }
@@ -1355,7 +1352,6 @@ function resumePayload(seat) {
  players: players,
  propOwner: propOwner,
  propLevel: propLevel,
- lottery: lottery,
  state: NET.started ? snapshotState() : null,
  chat: chatHistory.slice(-30),
  cooldownLeft: Math.max(0, emergencyCooldownUntil - Date.now())
@@ -1658,7 +1654,6 @@ function onClientReceive(msg) {
  case 'gamestart':
  if (msg.mapId) { currentMapId = msg.mapId; BOARD = mapById(msg.mapId).tiles; }
  players = msg.players; propOwner = msg.propOwner; propLevel = msg.propLevel;
- if (msg.lottery) lottery = msg.lottery;
  NET.started = true; enterGame();
  break;
  case 'map':
@@ -1692,7 +1687,6 @@ function applyResume(msg) {
  if (msg.mapId) { currentMapId = msg.mapId; BOARD = mapById(msg.mapId).tiles; }
  if (msg.propOwner) propOwner = msg.propOwner;
  if (msg.propLevel) propLevel = msg.propLevel;
- if (msg.lottery) lottery = msg.lottery;
  if (msg.cooldownLeft > 0) { emergencyCooldownUntil = Date.now() + msg.cooldownLeft; }
 
  const btn = document.getElementById('join-confirm-btn');
@@ -1846,9 +1840,8 @@ function hostStartGameMulti() {
  players = NET.roster.map((r, i) => makePlayer(r.name, r.avatarIdx, i, shuffledJobs[i]));
  propOwner = new Array(BOARD.length).fill(-1);
  propLevel = new Array(BOARD.length).fill(0);
- lottery = { won:false, winner:'', pot:2500 };
  NET.started = true;
- broadcast({ t:'gamestart', players, propOwner, propLevel, mapId: currentMapId, lottery });
+ broadcast({ t:'gamestart', players, propOwner, propLevel, mapId: currentMapId });
  enterGame();
  checkAndTriggerMacroEvent();
 }
@@ -1894,7 +1887,6 @@ function startGame() {
  }
  propOwner = new Array(BOARD.length).fill(-1);
  propLevel = new Array(BOARD.length).fill(0);
- lottery = { won:false, winner:'', pot:2500 };
  enterGame();
  checkAndTriggerMacroEvent();
 }
@@ -1978,8 +1970,6 @@ function renderBoard() {
  bc.innerHTML = `<h3>${m.icon} ${m.name}</h3>
  <div class="bc-turn">第 ${currentRound} / ${totalRounds} 周期</div>
  ${cur ? `<div class="bc-turn" style="color:${cur.color}">${cur.icon} 轮到 ${esc(cur.name)}</div>` : ''}
- ${lottery.won ? `<div class="bc-tip">🎟️ 彩票已由 ${esc(lottery.winner)} 中出</div>`
- : `<div class="bc-tip">🎟️ 彩票 ${money(lottery.pot)} 尚未开出</div>`}
  <div class="bc-tip">每一次选择，都有它的机会成本</div>`;
  }
 }
@@ -2007,8 +1997,7 @@ function updateUI() {
  document.getElementById('economy-status').innerHTML = `
  <span>🌍 状态: <b class="${globalInflation > 1 || salaryRate < 1 ? 'eco-bad' : 'eco-good'}">${economyStateName}</b></span>
  <span>💹 通胀: ${globalInflation}x</span>
- <span>💼 薪资: ${Math.round(salaryRate * 100)}%</span>
- <span>🎟️ 彩票: ${lottery.won ? esc(lottery.winner) + ' 已中' : money(lottery.pot) + ' 待开'}</span>`;
+ <span>💼 薪资: ${Math.round(salaryRate * 100)}%</span>`;
 
  const dashboard = document.getElementById('dashboard');
  dashboard.innerHTML = players.map((p, idx) => {
@@ -2086,7 +2075,7 @@ let pendingPay = null;           // 房主端：待完成的付款（可能需�
 function snapshotState() {
  return {
  players, currentPlayerIndex, currentRound, globalInflation, salaryRate, economyStateName,
- currentPhase, phaseData, phaseActor, phaseSeconds, propOwner, propLevel, lottery, currentMapId
+ currentPhase, phaseData, phaseActor, phaseSeconds, propOwner, propLevel, currentMapId
  };
 }
 function broadcastState() { if (isHost()) broadcast({ t:'state', s: snapshotState() }); }
@@ -2096,7 +2085,7 @@ function applyRemoteState(s) {
  players = s.players; currentPlayerIndex = s.currentPlayerIndex; currentRound = s.currentRound;
  globalInflation = s.globalInflation; salaryRate = s.salaryRate; economyStateName = s.economyStateName;
  currentPhase = s.currentPhase; phaseData = s.phaseData; phaseActor = s.phaseActor; phaseSeconds = s.phaseSeconds;
- propOwner = s.propOwner; propLevel = s.propLevel; lottery = s.lottery;
+ propOwner = s.propOwner; propLevel = s.propLevel;
  if (s.currentMapId && s.currentMapId !== currentMapId) { currentMapId = s.currentMapId; BOARD = mapById(currentMapId).tiles; buildBoard(); }
  updateUI();
  renderActionZone();
@@ -2487,18 +2476,11 @@ function askChance(p) {
  detail:'20 张卡里有大奖也有罚单，还可能被拘留。',
  cost:'放弃了稳定的 $200 通行奖励，还要承担亏损风险。' }
  ];
- if (!lottery.won) {
- opts.push({ k:'lotto', icon:'🎟️', label:`买一张彩票 $200（头奖 ${money(lottery.pot)}）`,
- detail:`全场<b>只会开出一次</b>，中奖率约 35%。开出后就没有了。`,
- cost:'$200 有 65% 的机率直接打水漂——这就是买彩票的期望成本。' });
- }
  opts.push({ k:'skip', icon:'🚶', label:'安全通过，领 $200',
  detail:'不冒险，稳稳拿一笔小钱。', def:true,
- cost:'错过了大奖与彩票的可能性——这就是<b>规避风险的代价</b>。' });
+ cost:'错过了大奖的可能性——这就是<b>规避风险的代价</b>。' });
  setChoice('chance', '🎁 机会格：赌一把还是求稳？',
- lottery.won
- ? `本期彩票已经被 <b>${esc(lottery.winner)}</b> 抱走了，现在只剩抽卡与安全通过。`
- : `🎟️ <b>${money(lottery.pot)}</b> 的头奖还没有人中——全场只开一次，要试试吗？`,
+ '抽卡有机会大赚，也可能被罚一笔；安全通过则稳拿 $200。你选哪一边？',
  opts, {});
 }
 
@@ -2767,21 +2749,6 @@ function applyChoice(key) {
 
  // ---- 机会格 ----
  if (kind === 'chance') {
- if (key === 'lotto') {
- return payThen(p, 200, '买彩票', extra => {
- if (lottery.won) return setResult(`🎟️ 可惜，头奖刚刚已经被 ${esc(lottery.winner)} 领走了，这张彩票没有中${extra}`);
- if (Math.random() < 0.35) {
- lottery.won = true; lottery.winner = p.name;
- p.money += lottery.pot; p.happiness += 2;
- log(`🎟️🎉 ${p.name} 中了彩票头奖 ${money(lottery.pot)}！全场唯一一次！`);
- pushSystemChat(`🎟️🎉 ${p.name} 中了 ${money(lottery.pot)} 的彩票头奖！全场只此一次！`);
- return setResult(`🎟️🎉 <b>中奖了！</b><br><b>${esc(p.name)}</b> 抱走全场唯一的头奖 <b style="color:var(--nature-gold);font-size:16px">${money(lottery.pot)}</b>，心情 +2❤️${extra}
- <br><span style="font-size:11px;color:#94a3b8">这是本局最后一张中奖彩票，之后再买也不会中了。</span>`);
- }
- return setResult(`🎟️ 没中。$200 就这样飞了${extra}
- <br><span style="font-size:11px;color:#94a3b8">彩票的期望值本来就低于成本——大多数人买到的是「希望」，不是钱。</span>`);
- });
- }
  if (key === 'draw') {
  const c = pick(chanceCards);
  const fx = c.fx;
@@ -2981,11 +2948,6 @@ const RULES_HTML = `
 </ul>
 <p>这就是流动性的意义：<b>资产不等于现金</b>，急着用钱时变现总要打折。</p>
 
-<h3>🎟️ 全场唯一的彩票</h3>
-<p>机会格可以花 <b>$200</b> 买一张彩票，头奖 <b>$2,500</b>。<br>
-整场游戏<span class="hl">只会开出一次</span>——第一个中奖的人拿走以后，彩票就不存在了。中奖率约 35%，
-也就是说买彩票的期望值低于成本，大多数人买到的是「希望」而不是钱。</p>
-
 <h3>🎲 各种格子（每次剧情都不同）</h3>
 <ul>
 <li><b>💰 收入格 / 🏁 起点</b>：领薪水（受薪资率与进修加成影响）。</li>
@@ -2994,7 +2956,7 @@ const RULES_HTML = `
 <li><b>🏦 银行格</b>：定存、贷款、降息、提前还债等 3 种情境。</li>
 <li><b>⚖️ 决策格</b>：周末怎么过、要不要合伙、体检报告、搬不搬家、社媒诱惑、开不开店……6 种人生难题。</li>
 <li><b>💼 跳槽格</b>：换工作 / 拿 offer 去谈加薪（60% 成功）/ 留任领 $400。</li>
-<li><b>🎁 机会格</b>：抽卡（20 张，有大奖也有罚单）/ 买彩票 / 安全通过领 $200。</li>
+<li><b>🎁 机会格</b>：抽卡（20 张，有大奖也有罚单）/ 安全通过领 $200。</li>
 <li><b>🧾 税务格</b>：所得税、房产税、关税，3 种税单。</li>
 <li><b>🔮 命运格</b>：20 张命运卡，好事坏事都有。</li>
 <li><b>⚡ 风险格 / 🌪️ 沙暴格</b>：8 种意外，有的扣钱，有的直接打击你的资产市值。</li>
