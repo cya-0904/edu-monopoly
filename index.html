@@ -195,6 +195,7 @@ h1 {
 .price-row { display: flex; align-items: center; gap: 6px; margin: 10px 0 8px; }
 .price-row .price-cur { font-size: 20px; font-weight: bold; color: var(--nature-gold); }
 .price-row input { font-size: 20px; font-weight: bold; text-align: center; font-family: 'Courier New', monospace; }
+.price-limit { font-size: 11.5px; color: var(--nature-gold); background: rgba(251,191,36,0.1); border: 1px solid rgba(251,191,36,0.3); border-radius: 8px; padding: 6px 9px; margin: 8px 0 4px; }
 .price-quick { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
 .price-quick .btn { width: auto; flex: 1; padding: 6px 8px; font-size: 11px; }
 .price-btns { display: flex; gap: 8px; margin-bottom: 8px; }
@@ -216,6 +217,8 @@ h1 {
 .map-card .m-desc { font-size: 11.5px; color: #cbd5e1; margin-top: 3px; line-height: 1.5; }
 .map-card .m-stat { font-size: 10.5px; color: #94a3b8; margin-top: 3px; }
 @media (min-width: 768px) { .map-grid { grid-template-columns: repeat(3, 1fr); } .map-card { flex-direction: column; } }
+
+.mood-note { font-size: 11.5px; line-height: 1.5; color: #e2e8f0; background: rgba(56,189,248,0.1); border-left: 3px solid var(--nature-sky); border-radius: 6px; padding: 6px 9px; margin: 0 0 8px; }
 
 .result-box { background: rgba(2,6,23,0.5); border-left: 3px solid var(--nature-gold); border-radius: 8px; padding: 10px; font-size: 13px; line-height: 1.6; }
 
@@ -1830,6 +1833,7 @@ function makePlayer(name, avatarIdx, seat, job) {
  color: SEAT_COLORS[seat % SEAT_COLORS.length], seat: seat,
  job: job, money: 4000, savings: 0, debt: 0, gold: 0, stock: 0,
  happiness: 5, position: 0, skill: 0, skipTurns: 0,
+ lastNetWorth: null, moodNote: '',
  rentEarned: 0, rentPaid: 0, passedChances: 0
  };
 }
@@ -2102,6 +2106,39 @@ function isActor() {
 function isMyTurn() { return isActor(); }
 function canAct() { return NET.remoteAct || isActor(); }
 
+/* ============ ❤️ 财务状况会影响心情 ============
+   钱多了会踏实、欠债多了会焦虑。每位玩家回合开始时结算一次，每次最多 ±2❤️。 */
+const MOOD = {
+ bigGain: 2000,     // 上一轮身家涨这么多 → +1
+ bigLoss: 2000,     // 上一轮身家跌这么多 → -1
+ heavyDebt: 2500,   // 负债超过这个数 → -1
+ tightCash: 400,    // 现金低于这个数 → -1
+ richCash: 8000,    // 现金高于这个数 → +1
+ wealthy: 12000     // 零负债且身家超过这个数 → +1
+};
+function applyFinanceMood(p) {
+ const nw = netWorth(p);
+ const prev = (p.lastNetWorth === null || p.lastNetWorth === undefined) ? nw : p.lastNetWorth;
+ p.lastNetWorth = nw;
+
+ let delta = 0; const reasons = [];
+ const diff = nw - prev;
+ if (diff >= MOOD.bigGain) { delta += 1; reasons.push(`上一轮身家大涨 ${money(diff)}，心情飞扬 +1❤️`); }
+ else if (diff <= -MOOD.bigLoss) { delta -= 1; reasons.push(`上一轮身家缩水 ${money(-diff)}，有点郁闷 -1❤️`); }
+
+ if (p.debt >= MOOD.heavyDebt) { delta -= 1; reasons.push(`背着 ${money(p.debt)} 的债，压力很大 -1❤️`); }
+ if (p.money < MOOD.tightCash) { delta -= 1; reasons.push(`现金只剩 ${money(p.money)}，捉襟见肘 -1❤️`); }
+
+ if (p.debt === 0 && nw >= MOOD.wealthy) { delta += 1; reasons.push(`零负债、身家 ${money(nw)}，安全感十足 +1❤️`); }
+ else if (p.money >= MOOD.richCash) { delta += 1; reasons.push(`手上有 ${money(p.money)} 现金，心里很踏实 +1❤️`); }
+
+ delta = Math.max(-2, Math.min(2, delta));
+ if (delta === 0) { p.moodNote = ''; return; }
+ p.happiness = Math.max(0, p.happiness + delta);
+ p.moodNote = `${delta > 0 ? '😊' : '😟'} ${reasons.join('；')}`;
+ log(`${delta > 0 ? '😊' : '😟'} ${p.name} ${reasons.join('；')}`);
+}
+
 function startPlayerTurnInit() {
  let guard = 0;
  while (players[currentPlayerIndex] && players[currentPlayerIndex].skipTurns > 0 && guard++ <= players.length) {
@@ -2114,6 +2151,7 @@ function startPlayerTurnInit() {
  if (currentRound > totalRounds) { hostEndGame('12 个探险周期已经走完'); return; }
  }
  }
+ applyFinanceMood(players[currentPlayerIndex]);
  currentPhase = 'roll'; phaseData = null; phaseActor = currentPlayerIndex; phaseSeconds = ROLL_SECONDS;
  document.getElementById('map-info').innerText = `轮到 ${players[currentPlayerIndex].name}，请抛掷幸运橡果`;
  renderActionZone(); updateUI(); broadcastState();
@@ -2233,11 +2271,12 @@ function renderActionZone() {
  if (d1) { d1.innerText = '🎲'; d1.classList.remove('rolling'); }
  if (d2) { d2.innerText = '🎲'; d2.classList.remove('rolling'); }
  const lbl = document.getElementById('dice-result-label'); if (lbl) lbl.innerText = '';
+ const mood = p.moodNote ? `<p class="mood-note">${p.moodNote}</p>` : '';
  zone.innerHTML = mine
- ? `<p class="action-title">🎲 轮到你了，${esc(p.name)}</p>
+ ? `<p class="action-title">🎲 轮到你了，${esc(p.name)}</p>${mood}
  <p class="action-sub">抛掷两颗幸运橡果向前移动。${secLabel(ROLL_SECONDS)}内不掷将自动为你抛掷。</p>
  <button class="btn btn-accent" id="dice-btn" onclick="playTurn()">🎲 抛掷幸运橡果</button>`
- : `<p class="turn-wait">⏳ 等待【<b>${esc(p.name)}</b>】抛掷幸运橡果…</p>`;
+ : `<p class="turn-wait">⏳ 等待【<b>${esc(p.name)}</b>】抛掷幸运橡果…</p>${mood}`;
  } else if (currentPhase === 'choice' && phaseData) {
  zone.innerHTML = `
  <p class="action-title">${phaseData.title}</p>
@@ -2257,12 +2296,14 @@ function renderActionZone() {
  <p class="action-title">🤝 ${esc(buyer.name)} 想收购你的【${tile.name}】</p>
  <p class="action-sub">你是这块地的主人，<b>价格由你开</b>。参考市价 ${money(phaseData.suggest)}，目前租金 ${money(rentOf(phaseData.i))}。</p>
  ${mine ? `
+ <p class="price-limit">🏷️ 可开价范围：<b>${money(phaseData.minPrice)} ~ ${money(phaseData.maxPrice)}</b>
+ （市价的 ${PRICE_MIN_RATIO}× ~ ${PRICE_MAX_RATIO}×，超出会自动拉回范围内）</p>
  <div class="price-row">
  <span class="price-cur">$</span>
- <input type="number" id="offer-price" min="1" step="50" value="${phaseData.suggest}">
+ <input type="number" id="offer-price" min="${phaseData.minPrice}" max="${phaseData.maxPrice}" step="50" value="${phaseData.suggest}">
  </div>
  <div class="price-quick">
- ${[1, 1.5, 2, 3].map(x => `<button class="btn btn-ghost" onclick="setPriceInput(${Math.floor(phaseData.suggest * x)})">${x}× 市价</button>`).join('')}
+ ${[0.5, 1, 1.5, 2].map(x => `<button class="btn btn-ghost" onclick="setPriceInput(${Math.floor(phaseData.suggest * x)})">${x}× 市价</button>`).join('')}
  </div>
  <div class="price-btns">
  <button class="btn" style="background:linear-gradient(135deg,#15803d,#4ade80);color:#052e16;" onclick="submitPrice()">💰 就这个价，卖！</button>
@@ -2276,7 +2317,11 @@ function renderActionZone() {
  }
 }
 
-function setPriceInput(v) { const el = document.getElementById('offer-price'); if (el) el.value = v; }
+function setPriceInput(v) {
+ const el = document.getElementById('offer-price');
+ if (!el || !phaseData) return;
+ el.value = Math.max(phaseData.minPrice, Math.min(phaseData.maxPrice, Math.floor(v)));
+}
 
 function chooseOption(key) {
  if (currentPhase !== 'choice') return;
@@ -2340,9 +2385,9 @@ function askSellPhase() {
  const p = players[pendingPay.pIdx];
  const short = pendingPay.amount - p.money;
  const opts = sellOptions(p);
- opts.push({ k:'loan', icon:'🩸', label:`向地下钱庄借 ${money(short)}（负债 +${money(Math.ceil(short * 1.3))}）`,
- detail:'什么都不卖，直接背债过关。', def:true,
- cost:'利率 30%，结算时会从身家里狠狠扣掉。' });
+ opts.push({ k:'loan', icon:'🏦', label:`向银行申请紧急贷款 ${money(short)}（负债 +${money(Math.ceil(short * 1.3))}）`,
+ detail:'什么资产都不卖，由银行先垫上，之后连本带息偿还。', def:true,
+ cost:'这是无抵押的应急贷款，年化利息高达 30%，结算时会从身家里扣掉。' });
  setChoice('sell',
  `💰 现金不足！需要支付 ${money(pendingPay.amount)}`,
  `${esc(p.name)} 手上只有 <b>${money(p.money)}</b>，还差 <b style="color:var(--nature-red)">${money(short)}</b>（${pendingPay.reason}）。<br>把资产变现，或者背债——你得选一个。`,
@@ -2373,7 +2418,7 @@ function finishPay(extraNote) {
  const short = pp.amount - p.money;
  const owe = Math.ceil(short * 1.3);
  p.money = 0; p.debt += owe;
- note += `<br>🩸 现金仍然不足，向地下钱庄借了 ${money(short)}，负债 +${money(owe)}`;
+ note += `<br>🏦 现金仍然不足，向银行申请了 ${money(short)} 的紧急贷款，负债 +${money(owe)}`;
  }
  pp.done(note);
 }
@@ -2598,10 +2643,18 @@ function handleProperty(p, i) {
  });
 }
 
+const PRICE_MAX_RATIO = 2;     // 🏷️ 开价上限：市价的 2 倍
+const PRICE_MIN_RATIO = 0.5;   // 🏷️ 开价下限：市价的一半（防止串通贱卖）
 function setPricePhase(i, buyerIdx, ownerIdx, rentText) {
  currentPhase = 'price';
  phaseActor = ownerIdx;
- phaseData = { i, buyer: buyerIdx, owner: ownerIdx, suggest: propMarket(i), rentText };
+ const market = propMarket(i);
+ phaseData = {
+ i, buyer: buyerIdx, owner: ownerIdx, rentText,
+ suggest: market,
+ minPrice: Math.floor(market * PRICE_MIN_RATIO),
+ maxPrice: Math.floor(market * PRICE_MAX_RATIO)
+ };
  phaseSeconds = CHOICE_SECONDS;
  renderActionZone(); updateUI(); broadcastState();
  if (!isClient()) startCountdown(CHOICE_SECONDS, () => { if (currentPhase === 'price') { log('⏰ 房东超时未回应，视为不卖'); hostPriceReply(-1); } });
@@ -2616,8 +2669,11 @@ function hostPriceReply(value) {
  return setResult(`${rentText}<br>🚫 <b>${esc(o.name)}</b> 拒绝了这笔交易——<b>${tile.name}</b> 不卖。
  <br><span style="font-size:11px;color:#94a3b8">在自由市场里，没有人有义务把资产卖给你。</span>`);
  }
- log(`💬 ${o.name} 为 ${tile.name} 开价 ${money(value)}`);
  const market = propMarket(i);
+ const raw = value;
+ value = Math.max(phaseData.minPrice, Math.min(phaseData.maxPrice, Math.floor(value)));
+ if (raw !== value) log(`🏷️ 开价 ${money(raw)} 超出允许范围，已自动调整为 ${money(value)}`);
+ log(`💬 ${o.name} 为 ${tile.name} 开价 ${money(value)}`);
  const ratio = value / market;
  setChoice('deal', `💬 房东开价 ${money(value)}`,
  `<b>${esc(o.name)}</b> 愿意以 <b style="color:var(--nature-gold)">${money(value)}</b> 出售 <b>${tile.name}</b>。<br>
@@ -2922,6 +2978,17 @@ const RULES_HTML = `
 <li><b>💎 身家合计</b>：上面全部加总（减负债），再加幸福感 × $300 就是总分。</li>
 </ul>
 
+<h3>❤️ 钱会影响心情（财务心情系统）</h3>
+<p>幸福感不只来自休息与陪伴——<b>财务状况本身就会影响心情</b>。每位玩家回合开始时会结算一次，每次最多 ±2❤️：</p>
+<ul>
+<li>上一轮身家大涨 <b>$2,000</b> 以上 → <span class="hl">+1❤️</span>（赚到了，心情飞扬）</li>
+<li>上一轮身家缩水 <b>$2,000</b> 以上 → −1❤️（亏钱总是难受）</li>
+<li>负债达到 <b>$2,500</b> 以上 → −1❤️（债务压力）</li>
+<li>现金低于 <b>$400</b> → −1❤️（捉襟见肘的焦虑）</li>
+<li>零负债且身家 <b>$12,000</b> 以上 → <span class="hl">+1❤️</span>（财务安全感）；或手上现金 <b>$8,000</b> 以上 → +1❤️（踏实）</li>
+</ul>
+<p>所以借钱扩张虽然能抢到房产，但<b>债务本身就在扣你的分</b>；而稳稳存钱的人，心情会自己变好。这也是一种机会成本。</p>
+
 <h3>🏠 房产玩法（大富翁规则）</h3>
 <ul>
 <li>停在无主的房产格，可以按标价<b>买下</b>它。</li>
@@ -2933,7 +3000,8 @@ const RULES_HTML = `
 <h3>🤝 向别人收购房产（要对方点头）</h3>
 <ul>
 <li>踩到别人的房产、付完租金后，你可以<b>开口提出收购</b>。</li>
-<li>接着轮到<b>房东开价</b>——卖不卖、卖多少，<span class="hl">完全由房东决定</span>，他也可以直接拒绝。</li>
+<li>接着轮到<b>房东开价</b>——卖不卖由房东决定，他也可以直接拒绝。</li>
+<li>但开价<b>有上下限</b>：只能开在<span class="hl">市价的 0.5 倍 ~ 2 倍</span>之间，不能漫天喊价，也不能贱卖给自己人。超出范围会被自动拉回。</li>
 <li>房东开完价，再由你决定要不要接受。双方都点头，交易才成立。</li>
 <li>房东有 1 分钟决定，超时视为不卖。</li>
 </ul>
@@ -2944,7 +3012,7 @@ const RULES_HTML = `
 <li><b>急售房产</b>：只能拿到市值的 <b>7 折</b>，而且从此没有租金收入。</li>
 <li><b>卖出黄金</b>：手续费 5%。<b>卖出股票</b>：急售折价 10%。</li>
 <li><b>解约定存</b>：拿回本金，但失去 8% 利息。</li>
-<li><b>向地下钱庄借钱</b>：什么都不卖，但差额 <b>×1.3</b> 计入负债。</li>
+<li><b>向银行申请紧急贷款</b>：什么都不卖，由银行垫付，但差额 <b>×1.3</b> 计入负债（无抵押应急贷款利息很高）。</li>
 </ul>
 <p>这就是流动性的意义：<b>资产不等于现金</b>，急着用钱时变现总要打折。</p>
 
