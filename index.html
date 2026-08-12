@@ -5,6 +5,16 @@
 <!-- 确保移动端不随意缩放和拉伸 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>机会博弈 (THE TRADE OFF) - 天空之城经济沙盘</title>
+<meta name="description" content="机会博弈 THE TRADE OFF —— 一款把经济学装进棋盘的联机游戏，最多 6 人联机对战。">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzFlMWI0YiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwZjE3MmEiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InJpbmciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzM4YmRmOCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjU1JSIgc3RvcC1jb2xvcj0iI2Y0NzJiNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNmYmJmMjQiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMTEyIiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxyZWN0IHg9IjE0IiB5PSIxNCIgd2lkdGg9IjQ4NCIgaGVpZ2h0PSI0ODQiIHJ4PSIxMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNyaW5nKSIgc3Ryb2tlLXdpZHRoPSIxNiIvPgogIDx0ZXh0IHg9IjI1NiIgeT0iMzMwIiBmb250LXNpemU9IjI1NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IidTZWdvZSBVSSBFbW9qaScsJ0FwcGxlIENvbG9yIEVtb2ppJyxzYW5zLXNlcmlmIj7wn46yPC90ZXh0Pgo8L3N2Zz4K">
+<!-- 分享预览用的缩略图（社交平台通常只抓取真实托管的图片 URL，data URI 未必生效；
+     favicon 部分在浏览器标签页/书签中始终可见，是最主要的落地效果 -->
+<meta property="og:title" content="机会博弈 THE TRADE OFF">
+<meta property="og:description" content="一款把经济学装进棋盘的联机游戏，最多 6 人联机对战。">
+<meta property="og:image" content="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iYmciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzFlMWI0YiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiMwZjE3MmEiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InJpbmciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwJSIgc3RvcC1jb2xvcj0iIzM4YmRmOCIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjU1JSIgc3RvcC1jb2xvcj0iI2Y0NzJiNiIvPgogICAgICA8c3RvcCBvZmZzZXQ9IjEwMCUiIHN0b3AtY29sb3I9IiNmYmJmMjQiLz4KICAgIDwvbGluZWFyR3JhZGllbnQ+CiAgPC9kZWZzPgogIDxyZWN0IHdpZHRoPSI1MTIiIGhlaWdodD0iNTEyIiByeD0iMTEyIiBmaWxsPSJ1cmwoI2JnKSIvPgogIDxyZWN0IHg9IjE0IiB5PSIxNCIgd2lkdGg9IjQ4NCIgaGVpZ2h0PSI0ODQiIHJ4PSIxMDAiIGZpbGw9Im5vbmUiIHN0cm9rZT0idXJsKCNyaW5nKSIgc3Ryb2tlLXdpZHRoPSIxNiIvPgogIDx0ZXh0IHg9IjI1NiIgeT0iMzMwIiBmb250LXNpemU9IjI1NiIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1mYW1pbHk9IidTZWdvZSBVSSBFbW9qaScsJ0FwcGxlIENvbG9yIEVtb2ppJyxzYW5zLXNlcmlmIj7wn46yPC90ZXh0Pgo8L3N2Zz4K">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="机会博弈 THE TRADE OFF">
+<meta name="twitter:description" content="一款把经济学装进棋盘的联机游戏，最多 6 人联机对战。">
 <style>
 :root {
  --panel-bg: rgba(22, 34, 42, 0.85);
@@ -182,7 +192,14 @@ h1 {
 .opt-card {
  border: 1px solid rgba(255,255,255,0.12); padding: 10px; border-radius: 10px;
  background: rgba(30, 41, 59, 0.85); text-align: left; cursor: pointer; transition: all 0.15s ease;
+ animation: optPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
+.opt-card:nth-child(1) { animation-delay: 0s; }
+.opt-card:nth-child(2) { animation-delay: 0.08s; }
+.opt-card:nth-child(3) { animation-delay: 0.16s; }
+.opt-card:nth-child(4) { animation-delay: 0.24s; }
+.opt-card:nth-child(5) { animation-delay: 0.32s; }
+@keyframes optPop { from { transform: scale(0.8) translateY(10px); opacity: 0; } to { transform: scale(1) translateY(0); opacity: 1; } }
 .opt-card:hover { border-color: var(--nature-sky); transform: translateY(-1px); }
 .opt-card.disabled { opacity: 0.4; cursor: not-allowed; }
 .opt-head { display: flex; align-items: center; gap: 8px; font-weight: bold; font-size: 13px; }
@@ -249,7 +266,7 @@ input[type="text"], select { width: 100%; padding: 10px; border: 1px solid rgba(
 }
 .tile {
  position: relative; border-radius: 7px; padding: 3px 2px 2px;
- display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+ display: flex; flex-direction: column; align-items: center; justify-content: center;
  border: 1px solid rgba(255,255,255,0.18); overflow: hidden; min-width: 0;
 }
 .tile .t-icon { font-size: 17px; line-height: 1.05; }
